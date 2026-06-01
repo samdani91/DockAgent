@@ -1,0 +1,85 @@
+{
+  "name": "dockagent",
+  "displayName": "DockAgent",
+  "description": "LLM-driven Dockerfile generation, testing, and flakiness repair",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dockagent-sidebar",
+          "title": "DockAgent",
+          "icon": "resources/dockAgent.svg"
+        }
+      ]
+    },
+    "views": {
+      "dockagent-sidebar": [
+        {
+          "type": "webview",
+          "id": "dockagent.chatView",
+          "name": "DockAgent"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "dockagent.runAll",
+        "title": "DockAgent: Run Full Pipeline",
+        "icon": "$(play)"
+      },
+      {
+        "command": "dockagent.generateDockerfile",
+        "title": "DockAgent: Generate Dockerfile"
+      },
+      {
+        "command": "dockagent.generateTests",
+        "title": "DockAgent: Generate Tests"
+      },
+      {
+        "command": "dockagent.detectFlakiness",
+        "title": "DockAgent: Detect & Repair Flakiness"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "dockagent.runAll",
+          "when": "view == dockagent.chatView",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "16.x",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^5.45.0",
+    "@typescript-eslint/parser": "^5.45.0",
+    "@vscode/test-electron": "^2.2.0",
+    "eslint": "^8.29.0",
+    "glob": "^8.1.0",
+    "mocha": "^10.1.0",
+    "typescript": "^4.9.4"
+  }
+}

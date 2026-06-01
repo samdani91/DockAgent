@@ -1,0 +1,855 @@
+<mxfile host="app.diagrams.net" compressed="false" pages="5">
+  <diagram name="1 · Test Generation" id="d1">
+    <mxGraphModel grid="0" page="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" value="Automated Dockerfile Test Generation" vertex="1">
+          <mxGeometry height="32" width="450" x="100" y="12" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1EFE8;fontColor=#2C2C2A;strokeColor=#888780;fontSize=13;fontStyle=1;" value="Dockerfile&#xa;(source input)" vertex="1">
+          <mxGeometry height="52" width="200" x="225" y="58" as="geometry" />
+        </mxCell>
+        <mxCell id="4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" value="S0 · Building&#xa;Build image; split RUN into single instructions" vertex="1">
+          <mxGeometry height="62" width="276" x="188" y="158" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" value="S1 · Enumeration of test targets&#xa;Metadata + all files from each image layer" vertex="1">
+          <mxGeometry height="62" width="276" x="188" y="272" as="geometry" />
+        </mxCell>
+        <mxCell id="6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" value="S2 · Selection of test targets&#xa;Heuristic scoring rules; threshold filter" vertex="1">
+          <mxGeometry height="62" width="276" x="188" y="386" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" value="S3 · Determination of test viewpoints&#xa;Assign test type per selected file" vertex="1">
+          <mxGeometry height="62" width="276" x="188" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" value="S4 · Acquisition of expectations&#xa;Run commands in container; capture outputs" vertex="1">
+          <mxGeometry height="62" width="276" x="188" y="614" as="geometry" />
+        </mxCell>
+        <mxCell id="9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=13;fontStyle=1;" value="Generated CST Tests&#xa;commandTests · fileExistenceTests · metadataTest" vertex="1">
+          <mxGeometry height="58" width="316" x="168" y="730" as="geometry" />
+        </mxCell>
+        <mxCell id="10" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="11" edge="1" parent="1" source="4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="12" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="13" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="14" edge="1" parent="1" source="7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="15" edge="1" parent="1" source="8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=11;" value="Docker image&#xa;layered artifact" vertex="1">
+          <mxGeometry height="50" width="158" x="508" y="163" as="geometry" />
+        </mxCell>
+        <mxCell id="21" edge="1" parent="1" source="4" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=11;" value="Image metadata&#xa;docker inspect" vertex="1">
+          <mxGeometry height="46" width="158" x="508" y="266" as="geometry" />
+        </mxCell>
+        <mxCell id="23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=11;" value="Layer files&#xa;all files per layer" vertex="1">
+          <mxGeometry height="46" width="158" x="508" y="318" as="geometry" />
+        </mxCell>
+        <mxCell id="24" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="25" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="26" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="2 metadata rules&#xa;CMD, ENV, EXPOSE, etc." vertex="1">
+          <mxGeometry height="46" width="158" x="508" y="378" as="geometry" />
+        </mxCell>
+        <mxCell id="27" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="18 file rules&#xa;path, filename, RUN args" vertex="1">
+          <mxGeometry height="46" width="158" x="508" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="28" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="26">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="29" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="27">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="30" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAECE7;fontColor=#4A1B0C;strokeColor=#D85A30;fontSize=11;" value="Executable files&#xa;→ commandTests" vertex="1">
+          <mxGeometry height="44" width="158" x="508" y="486" as="geometry" />
+        </mxCell>
+        <mxCell id="31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAECE7;fontColor=#4A1B0C;strokeColor=#D85A30;fontSize=11;" value="Non-executable files&#xa;→ fileExistenceTests" vertex="1">
+          <mxGeometry height="44" width="158" x="508" y="536" as="geometry" />
+        </mxCell>
+        <mxCell id="32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAECE7;fontColor=#4A1B0C;strokeColor=#D85A30;fontSize=11;" value="Metadata&#xa;→ metadataTest" vertex="1">
+          <mxGeometry height="44" width="158" x="508" y="586" as="geometry" />
+        </mxCell>
+        <mxCell id="33" edge="1" parent="1" source="7" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="30">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="34" edge="1" parent="1" source="7" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="31">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="35" edge="1" parent="1" source="7" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="32">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="36" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=11;" value="which + --version&#xa;executed in container" vertex="1">
+          <mxGeometry height="46" width="158" x="508" y="608" as="geometry" />
+        </mxCell>
+        <mxCell id="37" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=11;" value="Dockerfile / image&#xa;docker inspect" vertex="1">
+          <mxGeometry height="46" width="158" x="508" y="660" as="geometry" />
+        </mxCell>
+        <mxCell id="38" edge="1" parent="1" source="8" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="36">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="39" edge="1" parent="1" source="8" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" target="37">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="40" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;fontColor=#888780;" value="Based on Goto et al. · EASE 2025" vertex="1">
+          <mxGeometry height="22" width="316" x="168" y="798" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="2 · FLAKIDOCK" id="d2">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- Title -->
+        <mxCell id="2" value="FLAKIDOCK – Dockerfile Flakiness Repair" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="12" width="520" height="32" as="geometry" />
+        </mxCell>
+        <!-- INPUT -->
+        <mxCell id="3" value="Flaky Dockerfile&#xa;unpredictable build failures" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1EFE8;fontColor=#2C2C2A;strokeColor=#888780;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="215" y="58" width="250" height="52" as="geometry" />
+        </mxCell>
+        <!-- STEP 1 -->
+        <mxCell id="4" value="Step 1 · Dockerfile building&#xa;Build n times; capture build output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="160" width="320" height="62" as="geometry" />
+        </mxCell>
+        <!-- STEP 2 -->
+        <mxCell id="5" value="Step 2 · Similarity retrieval&#xa;Embed Dockerfile + build output; cosine search" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="160" y="278" width="360" height="62" as="geometry" />
+        </mxCell>
+        <!-- STEP 3 -->
+        <mxCell id="6" value="Step 3 · Repair generation (LLM / GPT-4)&#xa;Prompt: task desc + Dockerfile + build output&#xa;+ top-3 similar examples + CoT + false repair history" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="160" y="396" width="360" height="78" as="geometry" />
+        </mxCell>
+        <!-- STEP 4 -->
+        <mxCell id="7" value="Step 4 · Repair validation&#xa;Build repaired Dockerfile n times; check all builds pass" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="160" y="532" width="360" height="62" as="geometry" />
+        </mxCell>
+        <!-- DECISION 1: All pass? -->
+        <mxCell id="8" value="All pass?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F1EFE8;strokeColor=#888780;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="278" y="648" width="124" height="68" as="geometry" />
+        </mxCell>
+        <!-- YES → Repaired Dockerfile -->
+        <mxCell id="9" value="Repaired Dockerfile&#xa;stable build output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="462" y="652" width="180" height="58" as="geometry" />
+        </mxCell>
+        <!-- DECISION 2: Same error >= T? -->
+        <mxCell id="10" value="Same error&#xa;≥ T = 3?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F1EFE8;strokeColor=#888780;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="268" y="778" width="144" height="70" as="geometry" />
+        </mxCell>
+        <!-- YES → Unable to resolve -->
+        <mxCell id="11" value="Unable to resolve!&#xa;LLM hallucination limit hit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D85A30;fontColor=#ffffff;strokeColor=#712B13;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="462" y="782" width="180" height="58" as="geometry" />
+        </mxCell>
+        <!-- FEEDBACK BOX -->
+        <mxCell id="12" value="Feedback loop&#xa;Append false repair + build output to prompt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="190" y="912" width="300" height="58" as="geometry" />
+        </mxCell>
+        <!-- LEFT: Build output -->
+        <mxCell id="13" value="Build output&#xa;(dynamic context)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAECE7;fontColor=#4A1B0C;strokeColor=#D85A30;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="18" y="164" width="138" height="52" as="geometry" />
+        </mxCell>
+        <!-- LEFT: Demo dataset -->
+        <mxCell id="14" value="Demo dataset&#xa;100 repaired&#xa;Dockerfiles" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="18" y="274" width="120" height="72" as="geometry" />
+        </mxCell>
+        <!-- RIGHT: Non-flaky exit -->
+        <mxCell id="15" value="No failure detected&#xa;→ classified non-flaky" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="542" y="164" width="160" height="52" as="geometry" />
+        </mxCell>
+        <!-- RIGHT: Top-3 similar -->
+        <mxCell id="16" value="Top-3 similar records&#xa;+ repair patches" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="542" y="280" width="160" height="56" as="geometry" />
+        </mxCell>
+        <!-- RIGHT: Prompt components -->
+        <mxCell id="17" value="Prompt includes:&#xa;· Task description&#xa;· Static context (Dockerfile)&#xa;· Dynamic context (build log)&#xa;· Few-shot examples (RAG)&#xa;· False repair history" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F1FB;fontColor=#042C53;strokeColor=#185FA5;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="542" y="390" width="160" height="112" as="geometry" />
+        </mxCell>
+        <!-- Main flow arrows -->
+        <mxCell id="30" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="3" target="4" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="31" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="4" target="5" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="32" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="5" target="6" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="33" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="6" target="7" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="34" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="7" target="8" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="35" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="8" target="9" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="36" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="8" target="10" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="37" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="10" target="11" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="38" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="10" target="12" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- FEEDBACK LOOP: back to Step 3 (left side routing) -->
+        <mxCell id="39" value="re-prompt" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="12" target="6" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="108" y="941" />
+              <mxPoint x="108" y="435" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <!-- Callout arrows -->
+        <mxCell id="40" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="4" target="13" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="41" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="4" target="15" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="42" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="5" target="14" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="43" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="5" target="16" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="44" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="6" target="17" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Reference -->
+        <mxCell id="50" value="Based on Shabani et al. · FLAKIDOCK (2025)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;fontColor=#888780;" vertex="1" parent="1">
+          <mxGeometry x="190" y="980" width="300" height="22" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="3 · DRAFT (Dockerfile Generation)" id="d3">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- Title -->
+        <mxCell id="2" value="DRAFT – Automatic Dockerfile Generation (ICSE 2026)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="12" width="560" height="32" as="geometry" />
+        </mxCell>
+        <!-- INPUT -->
+        <mxCell id="3" value="Software repository&#xa;GitHub project (no Dockerfile present)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1EFE8;fontColor=#2C2C2A;strokeColor=#888780;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="200" y="58" width="280" height="52" as="geometry" />
+        </mxCell>
+        <!-- STEP 1 -->
+        <mxCell id="4" value="Step 1 · Context extraction&#xa;Parse README, source files, project structure" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="185" y="162" width="310" height="62" as="geometry" />
+        </mxCell>
+        <!-- STEP 2 -->
+        <mxCell id="5" value="Step 2 · Initial Dockerfile generation&#xa;LLM generates Dockerfile from repo context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="185" y="278" width="310" height="62" as="geometry" />
+        </mxCell>
+        <!-- ITERATIVE LOOP CONTAINER (dashed box) -->
+        <mxCell id="6" value="Iterative refinement loop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9E9E9E;dashed=1;dashPattern=8 4;fontSize=13;fontStyle=3;fontColor=#9E9E9E;verticalAlign=top;align=left;" vertex="1" parent="1">
+          <mxGeometry x="65" y="360" width="555" height="290" as="geometry" />
+        </mxCell>
+        <!-- STEP 3 (inside loop) -->
+        <mxCell id="7" value="Step 3 · Build attempt&#xa;Run docker build; capture build output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="185" y="392" width="310" height="62" as="geometry" />
+        </mxCell>
+        <!-- DECISION (inside loop) -->
+        <mxCell id="8" value="Build&#xa;success?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F1EFE8;strokeColor=#888780;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="283" y="510" width="118" height="70" as="geometry" />
+        </mxCell>
+        <!-- YES → exit box -->
+        <mxCell id="9" value="Build succeeded&#xa;exit loop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="462" y="514" width="140" height="58" as="geometry" />
+        </mxCell>
+        <!-- STEP 4: LLM patch (inside loop) -->
+        <mxCell id="10" value="Step 4 · LLM patch generation&#xa;Prompt LLM with build error; generate patch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="185" y="578" width="310" height="58" as="geometry" />
+        </mxCell>
+        <!-- STEP 5: Optimisation (outside loop) -->
+        <mxCell id="11" value="Step 5 · Image size optimisation&#xa;Remove unnecessary layers and dependencies" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="185" y="700" width="310" height="62" as="geometry" />
+        </mxCell>
+        <!-- OUTPUT -->
+        <mxCell id="12" value="Working Dockerfile&#xa;80% success rate across 35 projects" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="195" y="816" width="290" height="58" as="geometry" />
+        </mxCell>
+        <!-- Main flow arrows -->
+        <mxCell id="20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="3" target="4" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="4" target="5" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="5" target="7" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="7" target="8" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="24" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="8" target="9" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="25" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="8" target="10" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- LOOP BACK: Step 4 → Step 3 (left side) -->
+        <mxCell id="26" value="retry build" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="10" target="7" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="122" y="607" />
+              <mxPoint x="122" y="423" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <!-- EXIT LOOP → STEP 5 -->
+        <mxCell id="27" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="9" target="11" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="532" y="660" />
+              <mxPoint x="532" y="731" />
+              <mxPoint x="495" y="731" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="28" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="11" target="12" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- RIGHT: Step 1 callouts -->
+        <mxCell id="40" value="README / docs&#xa;natural language hints" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="540" y="155" width="162" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="41" value="Source files&#xa;language, deps, scripts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5EE;fontColor=#04342C;strokeColor=#1D9E75;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="540" y="201" width="162" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="42" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="4" target="40" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="43" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="4" target="41" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- RIGHT: Step 2 callout -->
+        <mxCell id="44" value="Supported languages&#xa;C · Java · Go&#xa;Python · Ruby" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F1FB;fontColor=#042C53;strokeColor=#185FA5;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="540" y="270" width="162" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="45" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="5" target="44" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- RIGHT: Step 5 stats -->
+        <mxCell id="46" value="Results (paper)&#xa;67.14% size reduction&#xa;3.62% faster builds" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="540" y="695" width="162" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="47" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=open;endFill=0;rounded=0;" edge="1" source="11" target="46" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Reference -->
+        <mxCell id="50" value="Based on Lyu et al. · DRAFT, ICSE 2026" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;fontColor=#888780;" vertex="1" parent="1">
+          <mxGeometry x="195" y="882" width="290" height="22" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="4 · DockAgent Architecture" id="d4">
+    <mxGraphModel grid="0" page="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="1400" pageHeight="1380" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="NCCniLCMUfFRVQk0o2E8-100" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="NCCniLCMUfFRVQk0o2E8-99">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1EFE8;fontColor=#2C2C2A;strokeColor=#888780;fontSize=13;fontStyle=1;" value="Software Repository" vertex="1">
+          <mxGeometry height="54" width="320" x="519" y="-60" as="geometry" />
+        </mxCell>
+        <mxCell id="10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#6B4EAF;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="270" width="290" x="40" y="178" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=12;fontStyle=1;" value="Module 1 · Dockerfile Generation" vertex="1">
+          <mxGeometry height="30" width="290" x="40" y="178" as="geometry" />
+        </mxCell>
+        <mxCell id="12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEEDFE;fontColor=#26215C;strokeColor=#7B5EA7;fontSize=11;" value="Context extraction&#xa;README + source files" vertex="1">
+          <mxGeometry height="44" width="262" x="54" y="222" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEEDFE;fontColor=#26215C;strokeColor=#7B5EA7;fontSize=11;" value="LLM generation&#xa;initial Dockerfile" vertex="1">
+          <mxGeometry height="44" width="262" x="54" y="278" as="geometry" />
+        </mxCell>
+        <mxCell id="14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEEDFE;fontColor=#26215C;strokeColor=#7B5EA7;fontSize=11;" value="Build · patch loop&#xa;iterative refinement" vertex="1">
+          <mxGeometry height="44" width="262" x="54" y="334" as="geometry" />
+        </mxCell>
+        <mxCell id="15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=11;fontStyle=1;" value="Working Dockerfile" vertex="1">
+          <mxGeometry height="30" width="230" x="70" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="m1a" edge="1" parent="1" source="12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m1b" edge="1" parent="1" source="13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m1c" edge="1" parent="1" source="14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#185FA5;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="270" width="290" x="540" y="178" as="geometry" />
+        </mxCell>
+        <mxCell id="21" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#378ADD;fontColor=#ffffff;strokeColor=#185FA5;fontSize=12;fontStyle=1;" value="Module 2 · Test Generation" vertex="1">
+          <mxGeometry height="30" width="290" x="540" y="178" as="geometry" />
+        </mxCell>
+        <mxCell id="22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F1FB;fontColor=#042C53;strokeColor=#378ADD;fontSize=11;" value="Layer analysis&#xa;extract files and metadata" vertex="1">
+          <mxGeometry height="44" width="262" x="554" y="222" as="geometry" />
+        </mxCell>
+        <mxCell id="23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F1FB;fontColor=#042C53;strokeColor=#378ADD;fontSize=11;" value="Target selection&#xa;heuristic scoring rules" vertex="1">
+          <mxGeometry height="44" width="262" x="554" y="278" as="geometry" />
+        </mxCell>
+        <mxCell id="24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F1FB;fontColor=#042C53;strokeColor=#378ADD;fontSize=11;" value="CST test generation&#xa;commandTests · fileExistenceTests" vertex="1">
+          <mxGeometry height="44" width="262" x="554" y="334" as="geometry" />
+        </mxCell>
+        <mxCell id="25" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=11;fontStyle=1;" value="CST Test Suite" vertex="1">
+          <mxGeometry height="30" width="230" x="570" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="m2a" edge="1" parent="1" source="22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m2b" edge="1" parent="1" source="23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m2c" edge="1" parent="1" source="24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="50" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#993C1D;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="270" width="290" x="1040" y="178" as="geometry" />
+        </mxCell>
+        <mxCell id="51" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D85A30;fontColor=#ffffff;strokeColor=#712B13;fontSize=12;fontStyle=1;" value="Module 3 · Flakiness Detection &amp;amp; Repair" vertex="1">
+          <mxGeometry height="30" width="290" x="1040" y="178" as="geometry" />
+        </mxCell>
+        <mxCell id="52" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAECE7;fontColor=#4A1B0C;strokeColor=#D85A30;fontSize=11;" value="Repeated builds&#xa;detect flaky behavior" vertex="1">
+          <mxGeometry height="44" width="262" x="1054" y="222" as="geometry" />
+        </mxCell>
+        <mxCell id="53" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAECE7;fontColor=#4A1B0C;strokeColor=#D85A30;fontSize=11;" value="RAG · similarity search&#xa;retrieve similar repairs" vertex="1">
+          <mxGeometry height="44" width="262" x="1054" y="278" as="geometry" />
+        </mxCell>
+        <mxCell id="54" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAECE7;fontColor=#4A1B0C;strokeColor=#D85A30;fontSize=11;" value="LLM feedback loop&#xa;iterative patch generation" vertex="1">
+          <mxGeometry height="44" width="262" x="1054" y="334" as="geometry" />
+        </mxCell>
+        <mxCell id="55" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=11;fontStyle=1;" value="Repaired Dockerfile" vertex="1">
+          <mxGeometry height="30" width="230" x="1070" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="m3a" edge="1" parent="1" source="52" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="53">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m3b" edge="1" parent="1" source="53" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="54">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m3c" edge="1" parent="1" source="54" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" target="55">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fba" edge="1" parent="1" source="20" style="rounded=1;dashed=1;strokeColor=#1D7A5F;strokeWidth=2.5;fontSize=10;fontColor=#1D7A5F;fontStyle=1;endArrow=block;endFill=1;exitX=0.3;exitY=1.009;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;exitPerimeter=0;" target="11" value="Test failures → Dockerfile patch (Feedback A)">
+          <mxGeometry relative="1" x="-0.4433" y="-1" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="628" y="498" />
+              <mxPoint x="416" y="496" />
+              <mxPoint x="416" y="193" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fbb" edge="1" parent="1" source="55" style="rounded=1;dashed=1;strokeColor=#C0392B;strokeWidth=2.5;fontSize=10;fontColor=#C0392B;fontStyle=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="11" value=" Flakiness reports → Dockerfile patch (Feedback B) ">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1185" y="540" />
+              <mxPoint x="3" y="540" />
+              <mxPoint x="3" y="361" />
+              <mxPoint x="6" y="193" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sep" edge="1" parent="1" style="endArrow=none;html=1;strokeColor=#CCCCCC;strokeWidth=1.5;dashed=1;" value="">
+          <mxGeometry relative="1" x="40" y="570" as="geometry">
+            <mxPoint x="40" y="570" as="sourcePoint" />
+            <mxPoint x="1340" y="570" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="80" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#854F0B;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="152" width="1248" x="41" y="592" as="geometry" />
+        </mxCell>
+        <mxCell id="81" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BA7517;fontColor=#ffffff;strokeColor=#854F0B;fontSize=13;fontStyle=1;" value="VS Code Chat-based assistant" vertex="1">
+          <mxGeometry height="32" width="1249" x="40" y="590" as="geometry" />
+        </mxCell>
+        <mxCell id="div" edge="1" parent="1" style="endArrow=none;html=1;strokeColor=#E5C070;strokeWidth=1;dashed=1;" value="">
+          <mxGeometry relative="1" x="690" y="630" as="geometry">
+            <mxPoint x="684.37" y="630" as="sourcePoint" />
+            <mxPoint x="684.37" y="735" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r0" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;fontStyle=1;fontColor=#412402;" value="Receives from pipeline:" vertex="1">
+          <mxGeometry height="16" width="300" x="56" y="630" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="Build errors &amp; logs" vertex="1">
+          <mxGeometry height="32" width="190" x="56" y="654" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="Test failures (CST)" vertex="1">
+          <mxGeometry height="32" width="190" x="256" y="654" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="Flakiness reports" vertex="1">
+          <mxGeometry height="32" width="190" x="456" y="654" as="geometry" />
+        </mxCell>
+        <mxCell id="r4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="Dockerfile context awareness" vertex="1">
+          <mxGeometry height="32" width="280" x="56" y="696" as="geometry" />
+        </mxCell>
+        <mxCell id="r5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="Step-by-step fix guidance" vertex="1">
+          <mxGeometry height="32" width="280" x="346" y="696" as="geometry" />
+        </mxCell>
+        <mxCell id="p0" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;fontStyle=1;fontColor=#412402;" value="Provides to developer:" vertex="1">
+          <mxGeometry height="16" width="300" x="706" y="630" as="geometry" />
+        </mxCell>
+        <mxCell id="p1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="Error explanations" vertex="1">
+          <mxGeometry height="32" width="278" x="706" y="654" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="Fix recommendations" vertex="1">
+          <mxGeometry height="32" width="278" x="994" y="654" as="geometry" />
+        </mxCell>
+        <mxCell id="p4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAEEDA;fontColor=#412402;strokeColor=#BA7517;fontSize=11;" value="Natural language Q&amp;A" vertex="1">
+          <mxGeometry height="32" width="564" x="708" y="696" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" edge="1" parent="1" source="15" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.15;entryY=0;entryDx=0;entryDy=0;" target="81" value="errors">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" edge="1" parent="1" source="25" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="81" value="failures">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="690" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c3" edge="1" parent="1" source="55" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=9;exitX=0.326;exitY=0.982;exitDx=0;exitDy=0;entryX=0.85;entryY=0;entryDx=0;entryDy=0;exitPerimeter=0;" target="81" value="flakiness">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NCCniLCMUfFRVQk0o2E8-101" edge="1" parent="1" source="NCCniLCMUfFRVQk0o2E8-99" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NCCniLCMUfFRVQk0o2E8-102" edge="1" parent="1" source="NCCniLCMUfFRVQk0o2E8-99" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.478;entryY=-0.055;entryDx=0;entryDy=0;entryPerimeter=0;" target="21">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="678.9999999999995" y="168.6636513157896" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NCCniLCMUfFRVQk0o2E8-103" edge="1" parent="1" source="NCCniLCMUfFRVQk0o2E8-99" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="51">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NCCniLCMUfFRVQk0o2E8-99" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;" value="" vertex="1">
+          <mxGeometry height="32" width="32" x="663" y="28" as="geometry" />
+        </mxCell>
+        <mxCell id="NCCniLCMUfFRVQk0o2E8-104" edge="1" parent="1" source="10" style="rounded=1;dashed=1;strokeColor=#1D7A5F;strokeWidth=2.5;fontSize=10;fontColor=#1D7A5F;fontStyle=1;endArrow=block;endFill=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=none;startFill=0;" target="21" value="Patched Dockerfile (Feedback A)">
+          <mxGeometry relative="1" x="0.5235" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="258" y="489" />
+              <mxPoint x="380" y="492" />
+              <mxPoint x="380" y="296" />
+              <mxPoint x="380" y="117" />
+              <mxPoint x="492" y="117" />
+              <mxPoint x="492" y="193" />
+            </Array>
+            <mxPoint x="638" y="430" as="sourcePoint" />
+            <mxPoint x="340" y="203" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NCCniLCMUfFRVQk0o2E8-105" edge="1" parent="1" source="10" style="rounded=1;dashed=1;strokeColor=#C0392B;strokeWidth=2.5;fontSize=9;fontColor=#C0392B;fontStyle=1;endArrow=block;endFill=1;exitX=0.303;exitY=1.004;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="20" value="Patched Dockerfile (Feedback B) ">
+          <mxGeometry relative="1" x="-0.0005" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="128" y="495" />
+              <mxPoint x="-36" y="495" />
+              <mxPoint x="-36" y="371" />
+              <mxPoint x="-36" y="81" />
+              <mxPoint x="590" y="81" />
+              <mxPoint x="609" y="81" />
+            </Array>
+            <mxPoint x="1195" y="430" as="sourcePoint" />
+            <mxPoint x="1040" y="193" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a2-roFXzcV1tXr25bPoE-81" edge="1" parent="1" style="endArrow=classic;html=1;rounded=1;curved=0;dashed=1;fillColor=#a20025;strokeColor=#C0392B;strokeWidth=2.5;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="51" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <Array as="points">
+              <mxPoint x="756" y="482" />
+              <mxPoint x="756" y="499" />
+              <mxPoint x="826" y="499" />
+              <mxPoint x="903" y="499" />
+              <mxPoint x="900" y="193" />
+            </Array>
+            <mxPoint x="756" y="448" as="sourcePoint" />
+            <mxPoint x="909" y="428" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ══════════════════════════════════════════════════════════ -->
+        <!-- SIMPLIFIED ARCHITECTURE OVERVIEW (below main diagram)     -->
+        <!-- ══════════════════════════════════════════════════════════ -->
+        <mxCell id="s0" value="" style="endArrow=none;html=1;strokeColor=#CCCCCC;strokeWidth=1.5;dashed=1;" edge="1" parent="1">
+          <mxGeometry x="40" y="840" relative="1" as="geometry"><mxPoint x="40" y="840" as="sourcePoint"/><mxPoint x="1340" y="840" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="s0b" value="Simplified Architecture Overview" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1;fontColor=#444444;" vertex="1" parent="1">
+          <mxGeometry x="400" y="854" width="560" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- INPUT -->
+        <mxCell id="s1" value="Software Repository" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1EFE8;fontColor=#2C2C2A;strokeColor=#888780;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="550" y="888" width="260" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- MODULE BOXES -->
+        <mxCell id="s2" value="Dockerfile Generation&#xa;(LLM-based)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="110" y="1006" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3" value="Test Generation&#xa;(Layer-analysis-based)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#378ADD;fontColor=#ffffff;strokeColor=#185FA5;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="550" y="1006" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="s4" value="Flakiness Detection &amp; Repair&#xa;(RAG-based)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D85A30;fontColor=#ffffff;strokeColor=#712B13;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="990" y="1006" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="s5" value="Chat Assistant&#xa;(LLM-powered)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BA7517;fontColor=#ffffff;strokeColor=#854F0B;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="550" y="1150" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="s6" value="Correct · Tested · Stable Docker Environment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="1282" width="520" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- Input → modules (fanned) -->
+        <mxCell id="sa1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="s1" target="s2" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="680" y="958"/><mxPoint x="240" y="958"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="sa2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="s1" target="s3" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="sa3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="s1" target="s4" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="680" y="958"/><mxPoint x="1120" y="958"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Modules → Chat (dashed) -->
+        <mxCell id="sa4" value="errors" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=10;" edge="1" source="s2" target="s5" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="240" y="1110"/><mxPoint x="240" y="1180"/><mxPoint x="550" y="1180"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="sa5" value="failures" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=10;" edge="1" source="s3" target="s5" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="sa6" value="flakiness" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=10;" edge="1" source="s4" target="s5" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1120" y="1110"/><mxPoint x="1120" y="1180"/><mxPoint x="810" y="1180"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Chat → Output -->
+        <mxCell id="sa7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="s5" target="s6" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Feedback A (green): M2 → M1 -->
+        <mxCell id="sb1" value="Test failures → patch (Feedback A)" style="rounded=1;dashed=1;strokeColor=#1D7A5F;strokeWidth=2.5;fontSize=10;fontColor=#1D7A5F;fontStyle=1;endArrow=block;endFill=1;" edge="1" source="s3" target="s2" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="680" y="1096"/><mxPoint x="240" y="1096"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Feedback B (red): M3 → M1 -->
+        <mxCell id="sb2" value="Flakiness reports → patch (Feedback B)" style="rounded=1;dashed=1;strokeColor=#C0392B;strokeWidth=2.5;fontSize=10;fontColor=#C0392B;fontStyle=1;endArrow=block;endFill=1;" edge="1" source="s4" target="s2" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1120" y="1120"/><mxPoint x="78" y="1120"/><mxPoint x="78" y="1036"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="sc0" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFFFE;strokeColor=#1D7A5F;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="990" y="1150" width="260" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="sc1" value="Legend" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontStyle=1;fontColor=#1D7A5F;" vertex="1" parent="1">
+          <mxGeometry x="1002" y="1156" width="60" height="14" as="geometry"/>
+        </mxCell>
+        <mxCell id="sc2" value="" style="endArrow=block;endFill=1;html=1;strokeColor=#1D7A5F;strokeWidth=2;dashed=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="1002" y="1176" as="sourcePoint"/><mxPoint x="1030" y="1176" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sc3" value="Test failure → M1 patch" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1D7A5F;" vertex="1" parent="1">
+          <mxGeometry x="1036" y="1168" width="200" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="sc4" value="" style="endArrow=block;endFill=1;html=1;strokeColor=#C0392B;strokeWidth=2;dashed=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="1002" y="1194" as="sourcePoint"/><mxPoint x="1030" y="1194" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sc5" value="Flakiness → M1 patch" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#C0392B;" vertex="1" parent="1">
+          <mxGeometry x="1036" y="1186" width="200" height="16" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="5 · One-click Unified Pipeline" id="d5">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- Title -->
+        <mxCell id="2" value="DockAgent – One-click Unified Pipeline" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="18" width="680" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="Generate → Test → Repair in a single action from a software repository" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#888780;" vertex="1" parent="1">
+          <mxGeometry x="80" y="50" width="680" height="18" as="geometry" />
+        </mxCell>
+        <!-- INPUT -->
+        <mxCell id="4" value="Software repository" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1EFE8;fontColor=#2C2C2A;strokeColor=#888780;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="330" y="82" width="190" height="40" as="geometry" />
+        </mxCell>
+        <!-- ===== PIPELINE BOX 1: DOCKERFILE GENERATION ===== -->
+        <mxCell id="10" value="Dockerfile generation&#xa;(DRAFT · ICSE 2026)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="170" width="220" height="75" as="geometry" />
+        </mxCell>
+        <!-- ===== PIPELINE BOX 2: TEST GENERATION ===== -->
+        <mxCell id="11" value="Test generation&#xa;(Goto et al. · EASE 2025)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#378ADD;fontColor=#ffffff;strokeColor=#185FA5;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="170" width="220" height="75" as="geometry" />
+        </mxCell>
+        <!-- ===== PIPELINE BOX 3: FLAKINESS ===== -->
+        <mxCell id="12" value="Flakiness detection · repair&#xa;(FLAKIDOCK · 2025)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D85A30;fontColor=#ffffff;strokeColor=#712B13;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="170" width="220" height="75" as="geometry" />
+        </mxCell>
+        <!-- Input → Box 1 -->
+        <mxCell id="5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="4" target="10" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Box 1 → Box 2 -->
+        <mxCell id="13" value="auto" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;" edge="1" source="10" target="11" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Box 2 → Box 3 -->
+        <mxCell id="14" value="auto" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;" edge="1" source="11" target="12" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- ===== UNIFIED FEEDBACK LOOP arrow ===== -->
+        <mxCell id="15" value="Unified Feedback Loop: test failures + flakiness signals update Dockerfile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;fontSize=11;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;endArrow=block;endFill=1;" edge="1" source="12" target="10" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="730" y="306" />
+              <mxPoint x="170" y="306" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <!-- ===== CHAT-BASED ASSISTANT (below pipeline) ===== -->
+        <mxCell id="20" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#854F0B;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="330" width="780" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="21" value="Chat-based assistant" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BA7517;fontColor=#ffffff;strokeColor=#854F0B;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="330" width="780" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="22" value="Receives: build errors · test failures · flakiness reports  →  Provides: error explanations · fix recommendations · inline debugging suggestions · natural language Q&amp;A" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#412402;" vertex="1" parent="1">
+          <mxGeometry x="68" y="362" width="764" height="50" as="geometry" />
+        </mxCell>
+        <!-- Feedback loop → Chat (dashed arrow) -->
+        <mxCell id="23" value="triggers on every error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;endArrow=open;endFill=0;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="11" target="21" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="316" />
+              <mxPoint x="450" y="330" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <!-- ===== RUN BUTTON ===== -->
+        <mxCell id="30" value="▶  Run DockAgent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="335" y="448" width="230" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="31" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" source="30" target="32" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- ===== FINAL OUTPUT ===== -->
+        <mxCell id="32" value="Correct · Tested · Stable Docker environment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="210" y="516" width="480" height="50" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram name="6 · Simplified Architecture" id="d6">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="t1" value="DockAgent — Architecture Overview" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;fontColor=#222222;" vertex="1" parent="1">
+          <mxGeometry x="100" y="16" width="800" height="28" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="i1" value="Software Repository" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1EFE8;fontColor=#2C2C2A;strokeColor=#888780;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="410" y="62" width="290" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="m1" value="Dockerfile Generation&#xa;(LLM-based)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B4EAF;fontColor=#ffffff;strokeColor=#4A3483;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="196" width="290" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="m2" value="Test Generation&#xa;(Layer-analysis-based)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#378ADD;fontColor=#ffffff;strokeColor=#185FA5;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="410" y="196" width="290" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="m3" value="Flakiness Detection &amp; Repair&#xa;(RAG-based)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D85A30;fontColor=#ffffff;strokeColor=#712B13;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="196" width="290" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="m4" value="Chat Assistant&#xa;(LLM-powered)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BA7517;fontColor=#ffffff;strokeColor=#854F0B;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="410" y="404" width="290" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="m5" value="Correct · Tested · Stable Docker Environment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D9E75;fontColor=#ffffff;strokeColor=#0F6E56;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="566" width="510" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Input → modules -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="i1" target="m1" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="555" y="140"/><mxPoint x="205" y="140"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="i1" target="m2" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="i1" target="m3" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="555" y="140"/><mxPoint x="905" y="140"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Modules → Chat -->
+        <mxCell id="e4" value="errors" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=11;" edge="1" source="m1" target="m4" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="205" y="340"/><mxPoint x="205" y="437"/><mxPoint x="410" y="437"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e5" value="failures" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=11;" edge="1" source="m2" target="m4" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="flakiness" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;endArrow=open;endFill=0;fontSize=11;" edge="1" source="m3" target="m4" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="905" y="340"/><mxPoint x="905" y="437"/><mxPoint x="700" y="437"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Chat → Output -->
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="m4" target="m5" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Feedback A (green): M2 → M1 -->
+        <mxCell id="f1" value="Test failures → patch (Feedback A)" style="rounded=1;dashed=1;strokeColor=#1D7A5F;strokeWidth=2.5;fontSize=11;fontColor=#1D7A5F;fontStyle=1;endArrow=block;endFill=1;" edge="1" source="m2" target="m1" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="555" y="360"/><mxPoint x="205" y="360"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Feedback B (red): M3 → M1 -->
+        <mxCell id="f2" value="Flakiness reports → patch (Feedback B)" style="rounded=1;dashed=1;strokeColor=#C0392B;strokeWidth=2.5;fontSize=11;fontColor=#C0392B;fontStyle=1;endArrow=block;endFill=1;" edge="1" source="m3" target="m1" parent="1">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="905" y="388"/><mxPoint x="28" y="388"/><mxPoint x="28" y="229"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="lg0" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFFFE;strokeColor=#1D7A5F;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="404" width="290" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg1" value="Legend" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=11;fontStyle=1;fontColor=#444;" vertex="1" parent="1">
+          <mxGeometry x="774" y="412" width="80" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg2" value="" style="endArrow=block;endFill=1;html=1;strokeColor=#1D7A5F;strokeWidth=2;dashed=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="774" y="436" as="sourcePoint"/><mxPoint x="806" y="436" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="lg3" value="Test failure → M1 patch" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#1D7A5F;" vertex="1" parent="1">
+          <mxGeometry x="812" y="428" width="224" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg4" value="" style="endArrow=block;endFill=1;html=1;strokeColor=#C0392B;strokeWidth=2;dashed=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="774" y="456" as="sourcePoint"/><mxPoint x="806" y="456" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="lg5" value="Flakiness → M1 patch" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#C0392B;" vertex="1" parent="1">
+          <mxGeometry x="812" y="448" width="224" height="16" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+</mxfile>

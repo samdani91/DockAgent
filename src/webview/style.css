@@ -1,0 +1,647 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --da-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --da-fg: var(--vscode-sideBar-foreground, var(--vscode-editor-foreground));
+  --da-muted: var(--vscode-descriptionForeground);
+  --da-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.24));
+  --da-hover: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.1));
+  --da-input: var(--vscode-input-background);
+  --da-code: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
+}
+
+body {
+  height: 100vh;
+  overflow: hidden;
+  color: var(--da-fg);
+  background: var(--da-bg);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.da-header {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--da-border);
+  background: var(--vscode-sideBarSectionHeader-background, transparent);
+  flex-shrink: 0;
+}
+
+.da-header__mark,
+.da-message__avatar,
+.da-action-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.da-header__mark {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--vscode-focusBorder, var(--da-border));
+  border-radius: 7px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.da-header__copy {
+  min-width: 0;
+}
+
+.da-header__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--da-fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.da-header__subtitle {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--da-muted);
+  font-size: 11px;
+}
+
+.da-icon-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--da-muted);
+  cursor: pointer;
+}
+
+.da-icon-btn:hover {
+  color: var(--da-fg);
+  background: var(--da-hover);
+}
+
+.da-icon-btn:focus-visible,
+.da-action-btn:focus-visible,
+.da-send-btn:focus-visible,
+.da-setting-input:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.da-actions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 4px;
+  flex-shrink: 0;
+}
+
+.da-actions-header.is-collapsed {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--da-border);
+}
+
+.da-actions-label {
+  color: var(--da-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.da-actions-toggle {
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+}
+
+.da-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid var(--da-border);
+  flex-shrink: 0;
+}
+
+.da-action-btn {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 9px;
+  border: 1px solid var(--da-border);
+  border-radius: 6px;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--da-fg));
+  cursor: pointer;
+  text-align: left;
+}
+
+.da-action-btn:hover:not(:disabled) {
+  border-color: var(--vscode-focusBorder, var(--da-border));
+  background: var(--vscode-button-secondaryHoverBackground, var(--da-hover));
+}
+
+.da-action-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.da-action-btn--primary {
+  border-color: var(--vscode-button-background);
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.da-action-btn--primary:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.da-action-btn__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  background: var(--da-hover);
+  color: var(--da-fg);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.da-action-btn--primary .da-action-btn__icon {
+  background: rgba(255, 255, 255, 0.18);
+  color: currentColor;
+}
+
+.da-action-btn__content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.da-action-btn__label,
+.da-action-btn__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.da-action-btn__label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.da-action-btn__meta {
+  color: var(--da-muted);
+  font-size: 11px;
+}
+
+.da-action-btn--primary .da-action-btn__meta {
+  color: var(--vscode-button-foreground);
+  opacity: 0.82;
+}
+
+.da-test-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--da-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--vscode-sideBarSectionHeader-background, transparent);
+}
+
+.da-test-group .da-action-btn {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.da-test-group .da-action-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--vscode-button-secondaryHoverBackground, var(--da-hover));
+}
+
+.da-setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 58px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 8px;
+  border-top: 1px solid var(--da-border);
+  background: var(--da-hover);
+}
+
+.da-setting-label {
+  display: block;
+  color: var(--da-fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.da-setting-hint {
+  margin-top: 2px;
+  color: var(--da-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.da-setting-input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--vscode-input-border, var(--da-border));
+  border-radius: 4px;
+  color: var(--vscode-input-foreground);
+  background: var(--da-input);
+  text-align: right;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.da-setting-input::-webkit-outer-spin-button,
+.da-setting-input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.da-setting-input:disabled {
+  opacity: 0.55;
+}
+
+.da-messages {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 12px 10px 14px;
+  scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+  scrollbar-width: thin;
+}
+
+.da-messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+.da-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.da-messages::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--vscode-scrollbarSlider-background);
+}
+
+.da-message {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+  animation: daFadeIn 0.16s ease-out;
+}
+
+@keyframes daFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.da-message--user {
+  justify-content: flex-end;
+}
+
+.da-message__avatar {
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border: 1px solid var(--da-border);
+  border-radius: 6px;
+  background: var(--da-hover);
+  color: var(--da-fg);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.da-message__bubble {
+  min-width: 0;
+  max-width: calc(100% - 32px);
+  padding: 9px 10px;
+  border: 1px solid var(--da-border);
+  border-radius: 7px;
+  background: var(--vscode-editorWidget-background, var(--da-hover));
+  color: var(--da-fg);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.da-message--user .da-message__bubble {
+  max-width: 88%;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground, var(--da-fg));
+}
+
+.da-message--error .da-message__bubble,
+.da-message--success .da-message__bubble {
+  width: 100%;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.da-message--error .da-message__bubble {
+  border-left: 3px solid var(--vscode-inputValidation-errorBorder, #be1100);
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.da-message--success .da-message__bubble {
+  border-left: 3px solid var(--vscode-testing-iconPassed, #73c991);
+}
+
+.da-message__bubble p {
+  margin: 0 0 7px;
+}
+
+.da-message__bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.da-message__bubble ul,
+.da-message__bubble ol {
+  margin: 5px 0 7px;
+  padding-left: 18px;
+}
+
+.da-message__bubble li {
+  margin-bottom: 3px;
+}
+
+.da-message__bubble strong {
+  font-weight: 700;
+}
+
+.da-message__bubble em {
+  font-style: italic;
+}
+
+.da-message__bubble h2,
+.da-message__bubble h3,
+.da-message__bubble h4 {
+  margin: 8px 0 5px;
+  color: var(--da-fg);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.da-message__bubble h2 {
+  font-size: 14px;
+}
+
+.da-message__bubble h3 {
+  font-size: 13px;
+}
+
+.da-message__bubble h4 {
+  font-size: 12.5px;
+}
+
+.da-message__bubble code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--da-code);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.da-message__bubble pre {
+  margin: 7px 0;
+  padding: 10px;
+  overflow-x: auto;
+  border: 1px solid var(--da-border);
+  border-radius: 5px;
+  background: var(--da-code);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.da-message__bubble pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.da-message__meta {
+  margin-top: 8px;
+  color: var(--da-muted);
+  font-size: 10px;
+  line-height: 1;
+  text-transform: capitalize;
+}
+
+.da-code-block {
+  position: relative;
+  margin: 7px 0;
+}
+
+.da-code-block pre {
+  margin: 0;
+  padding-right: 48px;
+}
+
+.da-code-copy {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--da-border);
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  font-size: 10px;
+  opacity: 0;
+}
+
+.da-code-block:hover .da-code-copy,
+.da-code-copy:focus-visible {
+  opacity: 1;
+}
+
+.da-code-copy:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.da-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 18px;
+}
+
+.da-typing__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--da-muted);
+  animation: daTyping 1s infinite ease-in-out;
+}
+
+.da-typing__dot:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.da-typing__dot:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+@keyframes daTyping {
+  0%,
+  75%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.da-input-area {
+  padding: 9px 10px 10px;
+  border-top: 1px solid var(--da-border);
+  background: var(--da-bg);
+  flex-shrink: 0;
+}
+
+.da-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 7px;
+  align-items: end;
+  padding: 7px 7px 7px 10px;
+  border: 1px solid var(--vscode-input-border, var(--da-border));
+  border-radius: 7px;
+  background: var(--da-input);
+}
+
+.da-input-row:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+.da-input {
+  width: 100%;
+  max-height: 120px;
+  min-height: 24px;
+  resize: none;
+  overflow-y: auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--vscode-input-foreground);
+  line-height: 1.45;
+}
+
+.da-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.da-send-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+}
+
+.da-send-btn:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.da-send-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.da-input-hint {
+  margin-top: 5px;
+  color: var(--da-muted);
+  font-size: 10px;
+  text-align: right;
+}
+
+@media (max-width: 240px) {
+  .da-header {
+    grid-template-columns: 28px minmax(0, 1fr) 26px;
+    gap: 8px;
+    padding-inline: 8px;
+  }
+
+  .da-actions,
+  .da-actions-header,
+  .da-messages,
+  .da-input-area {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .da-action-btn {
+    grid-template-columns: 24px minmax(0, 1fr);
+    min-height: 44px;
+  }
+
+  .da-action-btn__icon {
+    width: 24px;
+    height: 24px;
+  }
+}
