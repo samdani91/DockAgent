@@ -1,0 +1,4 @@
+# Python 3.14+  |  Docker 29+  |  Ubuntu 26
+fastapi>=0.136.3
+uvicorn[standard]>=0.48.0
+docker>=7.1.0
