@@ -47,6 +47,27 @@ information and generate a new Dockerfile for me. \
 Preserve or improve existing comments, and add comments above any new instructions. \
 Output ONLY the Dockerfile."""
 
+# ── Phase B: image optimization ────────────────────────────────────────────
+# Multi-stage rewrite. {scan_hint} carries the critical facts (entry point,
+# port) so the rewrite cannot regress them — same mechanism as REPAIR_USER.
+MULTI_STAGE_USER = """\
+{scan_hint}\
+{dockerfile}
+
+The Dockerfile above builds successfully. Rewrite it as a MULTI-STAGE build \
+so the final image is smaller.
+
+Requirements:
+- Use at least two stages: a build/dependency stage, and a minimal runtime stage.
+- Copy into the final stage ONLY what the application needs at run time \
+(installed packages, compiled output, application source). Do NOT carry over \
+compilers, build toolchains, package caches, or dev-only dependencies.
+- The final stage MUST keep the same CMD/ENTRYPOINT and the same EXPOSE port \
+as the original.
+- Do not change application behaviour — only how the image is assembled.
+- Name every stage (e.g. "AS builder") and put a comment above each one.
+- Output ONLY the Dockerfile."""
+
 LLM_LOCALIZE_SYSTEM = "You are a build-log analyzer. Be terse and precise."
 
 LLM_LOCALIZE_USER = """\
