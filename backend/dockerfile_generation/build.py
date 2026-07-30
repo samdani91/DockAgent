@@ -12,6 +12,7 @@ class BuildResult:
     success: bool
     exit_code: int
     log: str
+    image_id: str | None = None  # set on success; needed to measure image size
 
 
 @runtime_checkable
@@ -35,11 +36,17 @@ class RealDockerBuilder:
 
     def build(self, dockerfile_text: str, context_dir: str) -> BuildResult:
         fd, dockerfile_path = tempfile.mkstemp(suffix=".Dockerfile")
+        iid_fd, iid_path = tempfile.mkstemp(suffix=".iid")
+        os.close(iid_fd)
         try:
             with os.fdopen(fd, "w") as f:
                 f.write(dockerfile_text)
 
-            cmd = ["docker", "build", "--progress=plain", "-f", dockerfile_path, "."]
+            cmd = [
+                "docker", "build", "--progress=plain",
+                "--iidfile", iid_path,
+                "-f", dockerfile_path, ".",
+            ]
             if self._no_cache:
                 cmd.insert(2, "--no-cache")
 
@@ -56,6 +63,7 @@ class RealDockerBuilder:
                 success=proc.returncode == 0,
                 exit_code=proc.returncode,
                 log=log,
+                image_id=_read_iid(iid_path) if proc.returncode == 0 else None,
             )
         except subprocess.TimeoutExpired:
             return BuildResult(
@@ -70,10 +78,39 @@ class RealDockerBuilder:
                 log="docker executable not found. Is Docker installed and on PATH?",
             )
         finally:
-            try:
-                os.unlink(dockerfile_path)
-            except OSError:
-                pass
+            for path in (dockerfile_path, iid_path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+
+def _read_iid(path: str) -> str | None:
+    """Read the image ID docker wrote via --iidfile."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+def image_size_bytes(image_id: str, timeout: int = 30) -> int | None:
+    """Return the on-disk size of *image_id* in bytes, or None if unavailable."""
+    try:
+        proc = subprocess.run(
+            ["docker", "image", "inspect", "-f", "{{.Size}}", image_id],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return int(proc.stdout.strip())
+    except ValueError:
+        return None
 
 
 class FakeDockerBuilder:
