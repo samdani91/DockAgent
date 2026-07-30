@@ -124,8 +124,21 @@ class DockAgentPanel {
             return;
         }
         this._postStatus(`Running ${module}…`);
+        if (module === 'generate') {
+            await this._handleDockerfileGeneration();
+            return;
+        }
         if (module === 'test') {
             await this._handleTestGeneration(threshold);
+            return;
+        }
+        if (module === 'all') {
+            this._postPersistent('assistant-message', 'assistant', '**Step 1 / 2** — Generating Dockerfile…');
+            const generated = await this._handleDockerfileGeneration();
+            if (generated) {
+                this._postPersistent('assistant-message', 'assistant', '**Step 2 / 2** — Generating Container Structure Tests…');
+                await this._handleTestGeneration(threshold);
+            }
             return;
         }
         try {
@@ -140,6 +153,75 @@ class DockAgentPanel {
         }
         catch (error) {
             this._postPersistent('pipeline-error', 'error', this._formatError(error, `Unable to reach the backend pipeline endpoint for ${module}.`));
+        }
+    }
+    async _handleDockerfileGeneration() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            this._postPersistent('pipeline-error', 'error', 'No workspace folder is open. Open a project folder first.');
+            return false;
+        }
+        const workspacePath = workspaceFolders[0].uri.fsPath;
+        try {
+            const response = await fetch(`${this._backendBaseUrl}/pipeline/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workspace_path: workspacePath })
+            });
+            if (!response.ok) {
+                throw new Error(`Backend returned ${response.status}`);
+            }
+            if (!response.body) {
+                throw new Error('No response body from backend.');
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let succeeded = false;
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) {
+                        continue;
+                    }
+                    let event;
+                    try {
+                        event = JSON.parse(line.slice(6));
+                    }
+                    catch {
+                        continue;
+                    }
+                    if (event.step === 'done') {
+                        succeeded = true;
+                        this._postPersistent('pipeline-success', 'success', event.message);
+                        if (event.output_path) {
+                            const doc = await vscode.workspace.openTextDocument(event.output_path);
+                            vscode.window.showTextDocument(doc);
+                        }
+                    }
+                    else if (event.step === 'error') {
+                        this._postPersistent('pipeline-error', 'error', event.message);
+                    }
+                    else {
+                        this._postStatus(event.message);
+                        // Surface build-attempt lines as chat messages so the user sees progress
+                        if (/attempt \d+/i.test(event.message) || /error located/i.test(event.message)) {
+                            this._postPersistent('assistant-message', 'assistant', event.message);
+                        }
+                    }
+                }
+            }
+            return succeeded;
+        }
+        catch (error) {
+            this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Dockerfile generation failed. Is the backend running?'));
+            return false;
         }
     }
     async _handleTestGeneration(threshold) {
