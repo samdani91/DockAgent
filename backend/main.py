@@ -137,6 +137,7 @@ class GenerateRequest(BaseModel):
     provider: str = "gemini"          # "gemini" | "openai"
     model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-2.5-pro"))
     build_timeout: int = 900
+    optimize: bool = False      # DRAFT Phase B — multi-stage image optimization
 
 
 def _has_project_files(workspace: Path) -> bool:
@@ -247,13 +248,40 @@ async def run_dockerfile_generation(request: GenerateRequest) -> StreamingRespon
             )
 
             if result.success:
-                dockerfile_out.write_text(result.dockerfile, encoding="utf-8")
+                final_dockerfile = result.dockerfile
+                summary = f"Dockerfile generated successfully in {result.attempts} attempt(s)."
+
+                # ── Phase B: optimization (optional) ───────────────────────
+                if request.optimize:
+                    from dockerfile_generation.optimize import optimize
+
+                    progress("optimizing", "Phase B — optimizing image (multi-stage)…")
+                    opt = optimize(
+                        dockerfile=final_dockerfile,
+                        context=context,
+                        context_dir=str(workspace),
+                        builder=builder,
+                        llm=llm,
+                        on_progress=lambda m: progress("optimizing", m),
+                    )
+                    if opt.success:
+                        final_dockerfile = opt.dockerfile
+                        if opt.reduction_pct is not None:
+                            summary += (
+                                f"\n\nOptimized (multi-stage): "
+                                f"{opt.original_size / 1e6:.1f} MB → "
+                                f"{opt.optimized_size / 1e6:.1f} MB "
+                                f"(**{opt.reduction_pct:.1f}% smaller**)."
+                            )
+                        else:
+                            summary += "\n\nOptimization applied (size unknown)."
+                    else:
+                        summary += f"\n\nOptimization skipped: {opt.note}"
+
+                dockerfile_out.write_text(final_dockerfile, encoding="utf-8")
                 event_queue.put({
                     "step": "done",
-                    "message": (
-                        f"Dockerfile generated successfully in {result.attempts} attempt(s).\n"
-                        f"Written to `{dockerfile_out}`"
-                    ),
+                    "message": f"{summary}\nWritten to `{dockerfile_out}`",
                     "output_path": str(dockerfile_out),
                 })
             else:

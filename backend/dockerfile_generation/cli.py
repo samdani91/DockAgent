@@ -56,6 +56,13 @@ def main() -> None:
         metavar="FILENAME",
         help="Output filename written to repo_path on success (default: Dockerfile).",
     )
+    parser.add_argument(
+        "--optimize",
+        action="store_true",
+        help="After a successful build, rewrite as a multi-stage build to shrink the "
+             "image (DRAFT Phase B). Falls back to the working Dockerfile if the "
+             "rewrite cannot be made to build or is not smaller.",
+    )
 
     args = parser.parse_args()
 
@@ -103,9 +110,37 @@ def main() -> None:
     )
 
     if result.success:
+        final_dockerfile = result.dockerfile
+
+        if args.optimize:
+            from .optimize import optimize
+
+            print("[dockagent-gen] Phase B — optimizing image (multi-stage)…")
+            opt = optimize(
+                dockerfile=final_dockerfile,
+                context=context,
+                context_dir=repo_path,
+                builder=builder,
+                llm=llm,
+                on_progress=lambda m: print(f"[dockagent-gen]   {m}"),
+            )
+            if opt.success:
+                final_dockerfile = opt.dockerfile
+                if opt.reduction_pct is not None:
+                    print(
+                        f"[dockagent-gen] Image size "
+                        f"{opt.original_size / 1e6:.1f} MB → "
+                        f"{opt.optimized_size / 1e6:.1f} MB "
+                        f"({opt.reduction_pct:.1f}% smaller)."
+                    )
+                else:
+                    print("[dockagent-gen] Optimization applied (size unknown).")
+            else:
+                print(f"[dockagent-gen] {opt.note}")
+
         output_path = os.path.join(repo_path, args.output)
         with open(output_path, "w", encoding="utf-8") as fh:
-            fh.write(result.dockerfile)
+            fh.write(final_dockerfile)
         print(
             f"[dockagent-gen] Success after {result.attempts} attempt(s). "
             f"Dockerfile written to {output_path}"
