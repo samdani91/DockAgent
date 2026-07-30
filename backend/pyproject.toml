@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=72", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dockerfile-generation"
+version = "0.1.0"
+description = "Automatic Dockerfile generation via LLM feedback loop (DRAFT/ICSE 2026)"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=1.0.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+dockagent-gen = "dockerfile_generation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dockerfile_generation*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
