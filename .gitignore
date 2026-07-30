@@ -4,3 +4,7 @@ venv
 .claude
 __pycache__
 .env
+*.egg-info
+*.egg-link
+.pytest_cache
+sample_repo/
