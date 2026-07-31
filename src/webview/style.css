@@ -516,41 +516,117 @@ button {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
-.da-typing {
-  display: inline-flex;
+/* ── Live status strip ───────────────────────────────────────────────── */
+
+.da-status {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  min-height: 18px;
+  gap: 8px;
+  flex-shrink: 0;              /* never collapse inside the flex column */
+  padding: 7px 12px;
+  border-top: 1px solid var(--da-border);
+  background: var(--da-hover);
+  font-size: 0.92em;
+  animation: daFadeIn 0.18s ease-out;
 }
 
-.da-typing__dot {
-  width: 5px;
-  height: 5px;
+.da-status[hidden] {
+  display: none;
+}
+
+.da-status__spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--da-muted);
+  border-top-color: transparent;
   border-radius: 999px;
-  background: var(--da-muted);
-  animation: daTyping 1s infinite ease-in-out;
+  animation: daSpin 0.7s linear infinite;
 }
 
-.da-typing__dot:nth-child(2) {
-  animation-delay: 0.14s;
+.da-status__body {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
 }
 
-.da-typing__dot:nth-child(3) {
-  animation-delay: 0.28s;
+.da-status__label {
+  color: var(--da-fg);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-@keyframes daTyping {
-  0%,
-  75%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
+.da-status__meta {
+  color: var(--da-muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.da-status__meta[hidden] {
+  display: none;
+}
+
+.da-status__time {
+  flex: none;
+  color: var(--da-muted);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.88em;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes daSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Respect users who have asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .da-status__spinner {
+    animation-duration: 2.4s;
   }
-  35% {
-    opacity: 1;
-    transform: translateY(-3px);
-  }
 }
+
+/* ── Collapsible raw output ──────────────────────────────────────────── */
+
+.da-detail__toggle {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  font-size: 0.88em;
+  cursor: pointer;
+}
+
+.da-detail__toggle:hover {
+  text-decoration: underline;
+}
+
+.da-detail__body {
+  margin-top: 6px;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--da-code);
+  color: var(--da-muted);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.85em;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.da-detail__body[hidden] {
+  display: none;
+}
+
 
 .da-input-area {
   padding: 9px 10px 10px;
