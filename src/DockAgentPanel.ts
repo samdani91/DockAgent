@@ -1,8 +1,21 @@
 import * as vscode from 'vscode';
 
 interface ChatEntry {
-  variant: 'user' | 'assistant' | 'error' | 'success';
+  variant: 'user' | 'assistant' | 'error' | 'success' | 'step';
   text: string;
+}
+
+/**
+ * A raw pipeline event rendered for humans.
+ *
+ * `label` is short enough for the live status strip; `detail` holds the raw
+ * text (build logs, stack traces) and is only ever shown on demand.
+ */
+interface ProgressView {
+  label: string;
+  meta?: string;
+  detail?: string;
+  milestone?: boolean;   // milestones are kept in the chat transcript
 }
 
 export class DockAgentPanel implements vscode.WebviewViewProvider {
@@ -132,7 +145,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
   private async _handlePipelineModule(module: string, threshold: number) {
     if (!module) { return; }
 
-    this._postStatus(`Running ${module}…`);
+    this._postStatus('Starting…');
 
     if (module === 'generate') {
       await this._handleDockerfileGeneration();
@@ -145,10 +158,10 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     }
 
     if (module === 'all') {
-      this._postPersistent('assistant-message', 'assistant', '**Step 1 / 2** — Generating Dockerfile…');
+      this._postStep('**Step 1 of 2** — Dockerfile');
       const generated = await this._handleDockerfileGeneration();
       if (generated) {
-        this._postPersistent('assistant-message', 'assistant', '**Step 2 / 2** — Generating Container Structure Tests…');
+        this._postStep('**Step 2 of 2** — Container Structure Tests');
         await this._handleTestGeneration(threshold);
       }
       return;
@@ -227,11 +240,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
           } else if (event.step === 'error') {
             this._postPersistent('pipeline-error', 'error', event.message);
           } else {
-            this._postStatus(event.message);
-            // Surface build-attempt lines as chat messages so the user sees progress
-            if (/attempt \d+/i.test(event.message) || /error located/i.test(event.message)) {
-              this._postPersistent('assistant-message', 'assistant', event.message);
-            }
+            this._handleProgressEvent(event.step, event.message);
           }
         }
       }
@@ -315,12 +324,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
           } else if (event.step === 'error') {
             this._postPersistent('pipeline-error', 'error', event.message);
           } else {
-            this._postStatus(event.message);
-            // Append step-completion summaries as chat messages
-            const isStepSummary = /^S[0-4] —.*(?:successfully|found|kept|identified|got version|built)/.test(event.message);
-            if (isStepSummary) {
-              this._postPersistent('assistant-message', 'assistant', event.message);
-            }
+            this._handleProgressEvent(event.step, event.message);
           }
         }
       }
@@ -329,8 +333,135 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     }
   }
 
-  private _postStatus(text: string) {
-    this._view?.webview.postMessage({ type: 'status-update', text });
+  private _postStatus(label: string, meta?: string) {
+    this._view?.webview.postMessage({ type: 'status-update', label, meta });
+  }
+
+  /** A pipeline milestone: kept in the transcript, does not end the run. */
+  private _postStep(text: string, detail?: string) {
+    this._addToHistory({ variant: 'step', text });   // detail is deliberately not persisted
+    this._view?.webview.postMessage({ type: 'pipeline-step', text, detail });
+  }
+
+  /**
+   * Turn a raw `{step, message}` event into something worth showing.
+   * Anything not matched falls back to the raw message as a status line only.
+   */
+  private _progressView(step: string, message: string): ProgressView {
+    // ── Dockerfile generation ────────────────────────────────────────────
+    const attempt = message.match(/Build attempt (\d+)\/(\d+)/i);
+    if (attempt) {
+      return { label: 'Building image', meta: `attempt ${attempt[1]} of ${attempt[2]}` };
+    }
+
+    const succeeded = message.match(/Build succeeded on attempt (\d+)/i);
+    if (succeeded) {
+      return {
+        label: 'Build succeeded',
+        meta: `on attempt ${succeeded[1]}`,
+        milestone: true
+      };
+    }
+
+    const located = message.match(/Error located:\s*([\s\S]+)/i);
+    if (located) {
+      return {
+        label: 'Build failed',
+        meta: this._summarizeError(located[1]),
+        detail: located[1].trim(),
+        milestone: true
+      };
+    }
+
+    const repairing = message.match(/Generating repair candidates \((.+?)\)/i);
+    if (repairing) {
+      return { label: 'Writing a fix', meta: repairing[1] };
+    }
+
+    if (/No progress/i.test(message)) {
+      return {
+        label: 'Stopped — the same error kept recurring',
+        milestone: true
+      };
+    }
+
+    // Phase B already emits short, human-readable lines — pass them through
+    // rather than flattening every sub-step to one label.
+    if (step === 'optimizing') {
+      const clean = message
+        .replace(/^Phase B\s*[—–-]\s*/i, '')
+        .replace(/[….]+$/, '')
+        .trim();
+      const cased = clean.charAt(0).toUpperCase() + clean.slice(1);
+      return { label: this._truncate(cased, 52) };
+    }
+
+    // ── Fixed steps, keyed off the SSE step name ─────────────────────────
+    const byStep: Record<string, string> = {
+      checking:   'Checking workspace',
+      context:    'Reading project files',
+      generating: 'Writing the Dockerfile',
+      S0: 'Building image',
+      S1: 'Reading image layers',
+      S2: 'Scoring files',
+      S3: 'Choosing test types',
+      S4: 'Collecting versions'
+    };
+    if (byStep[step]) {
+      // Test-generation steps carry useful counts after the dash
+      // ("S1 — Found 12 layers, 3400 files, …") — keep those as meta.
+      const rest = message.replace(/^S[0-4]\s*[—–-]\s*/, '').trim();
+      const isStats = /\d/.test(rest) && rest.includes(',');
+      return {
+        label: byStep[step],
+        meta: isStats ? this._truncate(rest, 46) : undefined
+      };
+    }
+
+    // Unknown event — show it, but keep it short and out of the transcript.
+    return { label: this._truncate(message, 70), detail: message };
+  }
+
+  /** Compress a raw build error into a few words. */
+  private _summarizeError(raw: string): string {
+    const text = raw.trim();
+
+    const failedCmd = text.match(/process "\/bin\/sh -c (.+?)" did not complete/i);
+    if (failedCmd) { return `\`${this._truncate(failedCmd[1], 42)}\` failed`; }
+
+    const aptMissing = text.match(/Unable to locate package (\S+)/i);
+    if (aptMissing) { return `package not found: ${aptMissing[1]}`; }
+
+    const pipMissing = text.match(/No matching distribution found for (\S+)/i);
+    if (pipMissing) { return `package not found: ${pipMissing[1]}`; }
+
+    const missingFile = text.match(/no such file or directory[:,]?\s*'?([^'\s]+)/i);
+    if (missingFile) { return `missing file: ${missingFile[1]}`; }
+
+    const notFound = text.match(/([\w.\-/]+): not found/i);
+    if (notFound) { return `not found: ${notFound[1]}`; }
+
+    // Fall back to the first meaningful line, minus the usual noise prefixes.
+    const firstLine = text.split('\n')[0]
+      .replace(/^(ERROR|error|E):\s*/, '')
+      .replace(/^failed to solve:\s*/i, '')
+      .trim();
+    return this._truncate(firstLine, 60);
+  }
+
+  private _truncate(text: string, max: number): string {
+    const clean = text.replace(/\s+/g, ' ').trim();
+    return clean.length > max ? clean.slice(0, max - 1) + '…' : clean;
+  }
+
+  /** Route one pipeline event to the status strip and, if notable, the transcript. */
+  private _handleProgressEvent(step: string, message: string) {
+    const view = this._progressView(step, message);
+    this._postStatus(view.label, view.meta);
+    if (view.milestone) {
+      const text = view.meta ? `${view.label} — ${view.meta}` : view.label;
+      this._postStep(text, view.detail);
+    }
   }
 
   private _formatError(error: unknown, fallbackMessage: string): string {
@@ -443,6 +574,19 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
                 <p>Choose an action or ask a question below.</p>
               </div>
             </div>
+          </div>
+
+          <!-- ── LIVE STATUS STRIP ── -->
+          <!-- Sits directly above the composer, visible only while a run is in
+               flight. The elapsed timer ticks client-side so it proves liveness
+               even during long silences. -->
+          <div class="da-status" id="statusStrip" hidden aria-live="polite">
+            <span class="da-status__spinner" aria-hidden="true"></span>
+            <span class="da-status__body">
+              <span class="da-status__label" id="statusLabel">Working</span>
+              <span class="da-status__meta" id="statusMeta"></span>
+            </span>
+            <span class="da-status__time" id="statusTime">0:00</span>
           </div>
 
           <!-- ── CHAT INPUT ── -->
