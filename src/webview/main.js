@@ -8,10 +8,15 @@ const actionsHeader = document.getElementById('actionsHeader');
 const actionsBody   = document.getElementById('actionsBody');
 const actionsToggle = document.getElementById('actionsToggle');
 const thresholdInput = document.getElementById('thresholdInput');
+const statusStrip = document.getElementById('statusStrip');
+const statusLabel = document.getElementById('statusLabel');
+const statusMeta  = document.getElementById('statusMeta');
+const statusTime  = document.getElementById('statusTime');
 
 let isWaiting  = false;
-let typingEl   = null;
 let actionsOpen = true;
+let runStartedAt = 0;
+let timerId = null;
 
 // ── Interactive control state ──
 function updateControls() {
@@ -47,9 +52,7 @@ clearBtn.addEventListener('click', () => {
   while (messagesEl.children.length > 1) {
     messagesEl.removeChild(messagesEl.lastChild);
   }
-  typingEl = null;
-  isWaiting = false;
-  updateControls();
+  endRun();
   vscode.setState({ history: [], threshold: thresholdInput?.value ?? '0' });
   vscode.postMessage({ type: 'clear-history' });
 });
@@ -112,7 +115,7 @@ function runModule(module) {
     ? Math.max(0, Math.min(20, parseInt(thresholdInput?.value, 10) || 0))
     : 0;
   vscode.postMessage({ type: 'run-module', module, threshold });
-  showTyping();
+  startRun('Starting');
 }
 
 // ── Send a chat message ──
@@ -124,45 +127,46 @@ function sendMessage() {
   vscode.postMessage({ type: 'user-message', text });
   chatInput.value = '';
   chatInput.style.height = 'auto';
-  showTyping();
-  updateControls();
+  startRun('Thinking');
 }
 
-// ── Typing indicator (animated dots in chat) ──
-function showTyping() {
+// ── Live status strip ──
+// The elapsed timer runs client-side, so the strip keeps moving even when the
+// backend is silent for minutes (long docker builds, sequential LLM calls).
+function formatElapsed(ms) {
+  const total = Math.floor(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function tickTimer() {
+  if (!runStartedAt) { return; }
+  statusTime.textContent = formatElapsed(Date.now() - runStartedAt);
+}
+
+function setStatus(label, meta) {
+  statusLabel.textContent = label || 'Working';
+  statusMeta.textContent = meta || '';
+  statusMeta.hidden = !meta;
+}
+
+function startRun(label) {
   isWaiting = true;
+  runStartedAt = Date.now();
+  setStatus(label, '');
+  statusTime.textContent = '0:00';
+  statusStrip.hidden = false;
+  if (timerId) { clearInterval(timerId); }
+  timerId = setInterval(tickTimer, 1000);
   updateControls();
-  if (typingEl) { return; }
-
-  typingEl = document.createElement('div');
-  typingEl.className = 'da-message da-message--assistant';
-
-  const avatar = document.createElement('div');
-  avatar.className = 'da-message__avatar';
-  avatar.textContent = 'DA';
-
-  const bubble = document.createElement('div');
-  bubble.className = 'da-message__bubble';
-  bubble.innerHTML =
-    '<div class="da-typing">' +
-    '<div class="da-typing__dot"></div>' +
-    '<div class="da-typing__dot"></div>' +
-    '<div class="da-typing__dot"></div>' +
-    '</div>';
-
-  typingEl.appendChild(avatar);
-  typingEl.appendChild(bubble);
-  messagesEl.appendChild(typingEl);
   scrollToBottom();
 }
 
-function hideTyping() {
+function endRun() {
   isWaiting = false;
+  runStartedAt = 0;
+  if (timerId) { clearInterval(timerId); timerId = null; }
+  statusStrip.hidden = true;
   updateControls();
-  if (typingEl) {
-    typingEl.remove();
-    typingEl = null;
-  }
 }
 
 // ── Smart auto-scroll (only when already near bottom) ──
@@ -191,7 +195,7 @@ function copyToClipboard(text) {
 
 // ── Append a message bubble ──
 // variant: 'user' | 'assistant' | 'error' | 'success'
-function appendMessage(variant, text) {
+function appendMessage(variant, text, detail) {
   const atBottom = isNearBottom();
 
   const wrapper = document.createElement('div');
@@ -231,6 +235,29 @@ function appendMessage(variant, text) {
     });
     block.appendChild(copyBtn);
   });
+
+  // Raw output (build logs, stack traces) stays folded away until asked for.
+  if (detail) {
+    const toggle = document.createElement('button');
+    toggle.className = 'da-detail__toggle';
+    toggle.textContent = 'Show details';
+    toggle.setAttribute('aria-expanded', 'false');
+
+    const body = document.createElement('pre');
+    body.className = 'da-detail__body';
+    body.textContent = detail;
+    body.hidden = true;
+
+    toggle.addEventListener('click', () => {
+      body.hidden = !body.hidden;
+      toggle.textContent = body.hidden ? 'Show details' : 'Hide details';
+      toggle.setAttribute('aria-expanded', String(!body.hidden));
+      if (!body.hidden && isNearBottom()) { scrollToBottom(); }
+    });
+
+    bubble.appendChild(toggle);
+    bubble.appendChild(body);
+  }
 
   wrapper.appendChild(bubble);
   if (variant !== 'user') {
@@ -307,21 +334,28 @@ window.addEventListener('message', event => {
 
   switch (msg.type) {
 
+    // A chat reply — the exchange is over.
     case 'assistant-message':
-      hideTyping();
+      endRun();
       appendMessage('assistant', msg.text);
       break;
 
+    // A pipeline milestone — the run continues, so the strip stays up.
+    case 'pipeline-step':
+      appendMessage('assistant', msg.text, msg.detail);
+      break;
+
     case 'status-update':
+      setStatus(msg.label, msg.meta);
       break;
 
     case 'pipeline-error':
-      hideTyping();
+      endRun();
       appendMessage('error', `⚠ ${msg.text}`);
       break;
 
     case 'pipeline-success':
-      hideTyping();
+      endRun();
       appendMessage('success', `✓ ${msg.text}`);
       break;
 
@@ -339,7 +373,10 @@ window.addEventListener('message', event => {
           const text = entry.variant === 'error'   ? `⚠ ${entry.text}`
                      : entry.variant === 'success' ? `✓ ${entry.text}`
                      : entry.text;
-          appendMessage(entry.variant, text);
+          // 'step' entries render like assistant messages; their raw detail is
+          // intentionally not persisted, so nothing is expandable after reload.
+          const variant = entry.variant === 'step' ? 'assistant' : entry.variant;
+          appendMessage(variant, text);
         }
       }
       break;
