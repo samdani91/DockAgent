@@ -3,11 +3,15 @@ import { DockAgentPanel } from './DockAgentPanel';
 
 export function activate(context: vscode.ExtensionContext) {
 
-  // Register the webview view provider (sidebar panel)
+  // Register the webview view provider (sidebar panel).
+  // retainContextWhenHidden keeps the panel's DOM alive while it is collapsed,
+  // so an in-flight run — its status strip, timer and scroll position — is
+  // still there when the user reopens it.
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       'dockagent.chatView',
-      new DockAgentPanel(context)
+      new DockAgentPanel(context),
+      { webviewOptions: { retainContextWhenHidden: true } }
     )
   );
 
