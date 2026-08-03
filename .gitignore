@@ -8,3 +8,8 @@ __pycache__
 *.egg-link
 .pytest_cache
 sample_repo/
+
+# Flake4Dock replication package (~7.3 GB, local only).
+# The retrieval corpus extracted from it IS tracked, at
+# backend/flakiness_repair/data/flake4dock_repairs.jsonl
+dataset/
