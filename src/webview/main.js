@@ -149,16 +149,18 @@ function setStatus(label, meta) {
   statusMeta.hidden = !meta;
 }
 
-function startRun(label) {
+// `startedAt` is an absolute timestamp from the extension host, so a run that
+// is already in flight resumes with the correct elapsed time after the panel
+// is closed and reopened.
+function startRun(label, startedAt, meta) {
   isWaiting = true;
-  runStartedAt = Date.now();
-  setStatus(label, '');
-  statusTime.textContent = '0:00';
+  runStartedAt = startedAt || Date.now();
+  setStatus(label, meta || '');
   statusStrip.hidden = false;
+  tickTimer();
   if (timerId) { clearInterval(timerId); }
   timerId = setInterval(tickTimer, 1000);
   updateControls();
-  scrollToBottom();
 }
 
 function endRun() {
@@ -346,17 +348,29 @@ window.addEventListener('message', event => {
       break;
 
     case 'status-update':
+      // A status line implies a run is active — if the webview was rebuilt
+      // mid-run, this re-arms the strip rather than being dropped.
+      if (!isWaiting) { startRun(msg.label, msg.startedAt, msg.meta); }
       setStatus(msg.label, msg.meta);
+      break;
+
+    // Authoritative run lifecycle from the extension host.
+    case 'run-begin':
+      startRun(msg.label, msg.startedAt, msg.meta);
+      break;
+
+    case 'run-end':
+      endRun();
       break;
 
     case 'pipeline-error':
       endRun();
-      appendMessage('error', `⚠ ${msg.text}`);
+      appendMessage('error', `⚠ ${msg.text}`, msg.detail);
       break;
 
     case 'pipeline-success':
       endRun();
-      appendMessage('success', `✓ ${msg.text}`);
+      appendMessage('success', `✓ ${msg.text}`, msg.detail);
       break;
 
     case 'run-all':
