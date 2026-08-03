@@ -1,9 +1,37 @@
 """S2: Score and filter test targets using the 20 scoring rules from the paper."""
 
 import fnmatch
+import posixpath
 import re
 
 from .data_structures import File, Layer, MetadataElement
+
+# -- Rule 21 (extension, not from the paper) --
+# Documentation and packaging metadata otherwise outrank real application files:
+# an npm man page picks up keyword points from its RUN instruction while a
+# plain source file does not. Kept deliberately general — no package-specific
+# paths.
+_DOC_DIR_MARKERS = ("/man/", "/doc/", "/docs/", "/.git/")
+_DOC_SUFFIXES = (".md", ".rst", ".markdown")
+_DOC_BASENAMES = ("license", "licence", "copying", "notice", "authors", "changelog")
+# Man-page section suffixes (foo.1, foo.3.gz). Only applied when the path also
+# mentions "man", so shared libraries like libc.so.6 are not caught.
+_MAN_SECTION_RE = re.compile(r"\.[1-9](\.gz)?$")
+
+
+def _is_documentation(path: str) -> bool:
+    lowered = path.lower()
+    if any(marker in lowered for marker in _DOC_DIR_MARKERS):
+        return True
+
+    base = posixpath.basename(lowered)
+    if base.endswith(_DOC_SUFFIXES):
+        return True
+    if any(base.startswith(name) for name in _DOC_BASENAMES):
+        return True
+    if "man" in lowered and _MAN_SECTION_RE.search(base):
+        return True
+    return False
 
 
 class Scorer:
@@ -133,6 +161,10 @@ class Scorer:
         # Rule 20: /log/ (penalty)
         if "/log/" in f.path:
             f.path_points -= 10   # Rule 20
+
+        # Rule 21 (extension): documentation / packaging metadata (penalty)
+        if _is_documentation(f.path):
+            f.path_points -= 10   # Rule 21
 
     # -- fnmatch helper (exact port from paper reference) --
 
