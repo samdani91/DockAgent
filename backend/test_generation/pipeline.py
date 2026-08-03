@@ -6,7 +6,9 @@ import re
 from typing import Callable
 
 from .builder import build_image
+from .data_structures import PipelineResult
 from .enumerator import Enumerator
+from .executor import execute_tests
 from .selector import Scorer, Filter
 from .cst_writer import write as write_cst
 
@@ -26,7 +28,9 @@ class TestPipeline:
         output_path: str,
         threshold: float,
         progress: Callable[[str, str], None],
-    ) -> str:
+        execute: bool = True,
+        execute_timeout: int = 300,
+    ) -> PipelineResult:
         image_name = _image_name_for(workspace_path)
 
         # S0
@@ -54,4 +58,23 @@ class TestPipeline:
         # S3 + S4 + write (progress forwarded into cst_writer)
         write_cst(filtered, info, image_name, output_path, progress)
 
-        return output_path
+        if not execute:
+            return PipelineResult(output_path=output_path)
+
+        # S5 — run the spec we just wrote.
+        # A runner failure must not discard the YAML, so it is reported rather
+        # than raised: the spec is a valid deliverable on its own.
+        progress("S5", "S5 — Running container structure tests…")
+        try:
+            test_run = execute_tests(
+                image_name, output_path, execute_timeout, progress
+            )
+        except RuntimeError as exc:
+            progress("S5", f"S5 — Could not run tests: {exc}")
+            return PipelineResult(
+                output_path=output_path,
+                execution_error=str(exc),
+            )
+
+        progress("S5", f"S5 — {test_run.passed}/{test_run.total} tests passed.")
+        return PipelineResult(output_path=output_path, test_run=test_run)
