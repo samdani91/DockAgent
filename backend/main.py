@@ -68,6 +68,8 @@ class TestPipelineRequest(BaseModel):
     dockerfile_path: str
     workspace_path: str
     threshold: float = 0.0
+    execute: bool = True          # S5 — run the generated spec
+    execute_timeout: int = 300
 
 
 @app.post("/pipeline/test")
@@ -86,18 +88,42 @@ async def run_test_generation(request: TestPipelineRequest) -> StreamingResponse
                 log.info("[%s] %s", step, message)
                 event_queue.put({"step": step, "message": message})
 
-            result_path = TestPipeline().run(
+            result = TestPipeline().run(
                 dockerfile_path=request.dockerfile_path,
                 workspace_path=request.workspace_path,
                 output_path=output_path,
                 threshold=request.threshold,
                 progress=progress,
+                execute=request.execute,
+                execute_timeout=request.execute_timeout,
             )
-            event_queue.put({
+
+            done: dict = {
                 "step": "done",
-                "message": f"Tests written to {result_path}",
-                "output_path": result_path,
-            })
+                "output_path": result.output_path,
+                "results": None,
+            }
+            if result.test_run is not None:
+                tr = result.test_run
+                done["message"] = f"{tr.passed} of {tr.total} tests passed."
+                done["results"] = {
+                    "total": tr.total,
+                    "passed": tr.passed,
+                    "failed": tr.failed,
+                    "cases": [
+                        {"name": c.name, "passed": c.passed, "errors": c.errors}
+                        for c in tr.results
+                    ],
+                    "raw_output": tr.raw_output,
+                }
+            else:
+                done["message"] = f"Tests written to {result.output_path}"
+                # A runner failure still yields a usable spec — say why, don't fail.
+                if result.execution_error:
+                    done["warning"] = (
+                        f"Tests were generated but not run: {result.execution_error}"
+                    )
+            event_queue.put(done)
         except Exception as exc:
             tb = traceback.format_exc()
             log.error("Pipeline failed:\n%s", tb)
