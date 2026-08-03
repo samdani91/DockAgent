@@ -71,6 +71,20 @@ def write(
 
 
 # ---------------------------------------------------------------------------
+# YAML escaping
+# ---------------------------------------------------------------------------
+
+def _sq(value) -> str:
+    """Escape a value for use inside a single-quoted YAML scalar."""
+    return str(value).replace("'", "''")
+
+
+def _dq(value) -> str:
+    """Escape a value for use inside a double-quoted YAML scalar."""
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+
+# ---------------------------------------------------------------------------
 # Section generators
 # ---------------------------------------------------------------------------
 
@@ -85,13 +99,14 @@ def _generate_metadata_test(metadata: list[MetadataElement]) -> str:
     if envs:
         lines.append("  envVars:")
         for e in envs:
-            lines.append(f'    - key: "{e.key}"')
-            lines.append(f'      value: "{e.value}"')
+            lines.append(f'    - key: "{_dq(e.key)}"')
+            lines.append(f'      value: "{_dq(e.value)}"')
     if labels:
         lines.append("  labels:")
         for e in labels:
-            lines.append(f"    - key: {e.key}")
-            lines.append(f"      value: {e.value}")
+            # Quoted so values containing ':' or '#' cannot break the document.
+            lines.append(f"    - key: '{_sq(e.key)}'")
+            lines.append(f"      value: '{_sq(e.value)}'")
     if ports:
         lines.append("  exposedPorts: " + str([e.value for e in ports]))
     if volumes:
@@ -105,32 +120,38 @@ def _generate_metadata_test(metadata: list[MetadataElement]) -> str:
 
 
 def _generate_command_tests(infos: list[tuple], versioned: dict) -> str:
+    # Names deliberately omit the originating Dockerfile instruction: it ran to
+    # hundreds of characters, and the runner already prefixes every name with
+    # "Command Test: ". The path under test is in the body of each entry.
     entries: list[str] = []
-    for files, inst in infos:
-        inst_clean = inst.rstrip("\n")
+    for files, _inst in infos:
         for f in files:
             command = posixpath.basename(f.path)
             block: list[str] = [
-                f"  - name: 'check {command}: {inst_clean}'",
+                f"  - name: 'check {_sq(command)}'",
             ]
             if f.check_command == "which":
-                block += [f"    command: 'which'", f"    args: ['{command}']"]
+                block += ["    command: 'which'", f"    args: ['{_sq(command)}']"]
             else:
-                block += [f"    command: 'type'", f"    args: ['-P', '{command}']"]
-            block.append(f"    expectedOutput: ['{re.escape(f.path)}']")
+                block += ["    command: 'type'", f"    args: ['-P', '{_sq(command)}']"]
+            block.append(f"    expectedOutput: ['{_sq(re.escape(f.path))}']")
             entries.append("\n".join(block))
 
             if command in versioned:
                 option, (stdout_v, stderr_v) = versioned[command]
                 b2 = [
-                    f"  - name: 'check {command} version: {inst_clean}'",
-                    f"    command: '{command}'",
-                    f"    args: ['{option}']",
+                    f"  - name: 'check {_sq(command)} version'",
+                    f"    command: '{_sq(command)}'",
+                    f"    args: ['{_sq(option)}']",
                 ]
                 if stdout_v:
-                    b2.append(f"    expectedOutput: ['{mask_patch_version(stdout_v)}']")
+                    b2.append(
+                        f"    expectedOutput: ['{_sq(mask_patch_version(stdout_v))}']"
+                    )
                 elif stderr_v:
-                    b2.append(f"    expectedError: ['{mask_patch_version(stderr_v)}']")
+                    b2.append(
+                        f"    expectedError: ['{_sq(mask_patch_version(stderr_v))}']"
+                    )
                 entries.append("\n".join(b2))
 
     if not entries:
@@ -140,14 +161,15 @@ def _generate_command_tests(infos: list[tuple], versioned: dict) -> str:
 
 def _generate_file_existence_tests(infos: list[tuple]) -> str:
     entries: list[str] = []
-    for files, inst in infos:
-        inst_clean = inst.rstrip("\n")
+    for files, _inst in infos:
         for f in files:
-            should = "false" if f.permissions.startswith("c") else "true"
+            removed = f.permissions.startswith("c")
+            should = "false" if removed else "true"
+            verb = "removed" if removed else "exists"
             entries.append(
                 "\n".join([
-                    f"  - name: '{f.path}: {inst_clean}'",
-                    f"    path: '{f.path}'",
+                    f"  - name: '{_sq(f.path)} {verb}'",
+                    f"    path: '{_sq(f.path)}'",
                     f"    shouldExist: {should}",
                 ])
             )
