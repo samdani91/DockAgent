@@ -13,3 +13,6 @@ sample_repo/
 # The retrieval corpus extracted from it IS tracked, at
 # backend/flakiness_repair/data/flake4dock_repairs.jsonl
 dataset/
+
+# Derived embedding index (rebuilt on demand, tied to a model version)
+.embedding_cache.json
