@@ -1,3 +1,6 @@
+from dataclasses import dataclass, field
+
+
 class MetadataElement:
     def __init__(self, type_, *, key=None, value):
         self.type = type_
@@ -44,3 +47,35 @@ class Layer:
 
     def set_inst_info(self, inst_info):
         self.inst_info = inst_info
+
+
+# ---------------------------------------------------------------------------
+# S5 — test execution results
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TestCaseResult:
+    name: str
+    passed: bool
+    errors: list[str] = field(default_factory=list)   # empty when passed
+
+
+@dataclass
+class TestRunResult:
+    total: int
+    passed: int
+    failed: int
+    results: list[TestCaseResult] = field(default_factory=list)
+    raw_output: str = ""                              # kept for the UI detail panel
+
+
+@dataclass
+class PipelineResult:
+    """What TestPipeline.run() hands back.
+
+    The spec path is always present even when execution fails, so a runner
+    problem never discards the generated YAML.
+    """
+    output_path: str
+    test_run: TestRunResult | None = None
+    execution_error: str | None = None
