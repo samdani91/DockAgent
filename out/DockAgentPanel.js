@@ -26,17 +26,28 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DockAgentPanel = void 0;
 const vscode = __importStar(require("vscode"));
 class DockAgentPanel {
+    get _runActive() {
+        return this._runStartedAt > 0;
+    }
     constructor(_context) {
         this._context = _context;
         this._backendBaseUrl = 'http://127.0.0.1:8000';
         this._chatHistory = [];
         this._maxHistory = 200;
+        // Authoritative run state. The webview's copy is destroyed whenever the view
+        // is hidden, but the SSE loop keeps running here — so the host owns this and
+        // replays it when the view comes back.
+        this._runStartedAt = 0;
+        this._runLabel = 'Working';
+        this._runMeta = '';
         DockAgentPanel.currentPanel = this;
         // Restore history saved in previous session
         this._chatHistory = _context.workspaceState.get('dockagent.chatHistory', []);
     }
     resolveWebviewView(webviewView, _context, _token) {
         this._view = webviewView;
+        // Note: retainContextWhenHidden is set on the provider registration in
+        // extension.ts — it is not part of WebviewOptions.
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [
@@ -45,23 +56,52 @@ class DockAgentPanel {
         };
         webviewView.webview.html = this._getHtmlContent(webviewView.webview);
         webviewView.webview.onDidReceiveMessage(msg => this._handleMessage(msg), undefined, this._context.subscriptions);
-        // Replay stored history after the webview has initialised
+        // Replay state once the webview has initialised. This runs on every
+        // re-resolve, which is what makes a reopened panel pick up a run that is
+        // still in flight rather than showing a blank UI.
+        setTimeout(() => this._restoreState(), 250);
+    }
+    /** Push history and any in-flight run into a freshly resolved webview. */
+    _restoreState() {
         if (this._chatHistory.length > 0) {
-            setTimeout(() => {
-                this._view?.webview.postMessage({
-                    type: 'restore-history',
-                    history: this._chatHistory
-                });
-            }, 250);
+            this._view?.webview.postMessage({
+                type: 'restore-history',
+                history: this._chatHistory
+            });
         }
+        if (this._runActive) {
+            this._view?.webview.postMessage({
+                type: 'run-begin',
+                label: this._runLabel,
+                meta: this._runMeta,
+                startedAt: this._runStartedAt
+            });
+        }
+    }
+    /** Mark a run as started; `startedAt` is absolute so elapsed time survives a reopen. */
+    _beginRun(label) {
+        this._runStartedAt = Date.now();
+        this._runLabel = label;
+        this._runMeta = '';
+        this._view?.webview.postMessage({
+            type: 'run-begin',
+            label,
+            startedAt: this._runStartedAt
+        });
+    }
+    _endRun() {
+        this._runStartedAt = 0;
+        this._runLabel = 'Working';
+        this._runMeta = '';
+        this._view?.webview.postMessage({ type: 'run-end' });
     }
     postMessage(message) {
         this._view?.webview.postMessage(message);
     }
     // Post a message AND persist it to history
-    _postPersistent(type, variant, text) {
-        this._addToHistory({ variant, text });
-        this._view?.webview.postMessage({ type, text });
+    _postPersistent(type, variant, text, detail) {
+        this._addToHistory({ variant, text }); // detail is deliberately not persisted
+        this._view?.webview.postMessage({ type, text, detail });
     }
     _addToHistory(entry) {
         this._chatHistory.push(entry);
@@ -74,7 +114,13 @@ class DockAgentPanel {
         switch (message.type) {
             case 'user-message':
                 this._addToHistory({ variant: 'user', text: String(message.text ?? '') });
-                await this._handleChatMessage(String(message.text ?? ''));
+                this._beginRun('Thinking');
+                try {
+                    await this._handleChatMessage(String(message.text ?? ''));
+                }
+                finally {
+                    this._endRun();
+                }
                 break;
             case 'run-module': {
                 const labels = {
@@ -85,7 +131,13 @@ class DockAgentPanel {
                 };
                 const label = labels[message.module] ?? String(message.module);
                 this._addToHistory({ variant: 'user', text: label });
-                await this._handlePipelineModule(String(message.module ?? ''), typeof message.threshold === 'number' ? message.threshold : 0.0);
+                this._beginRun('Starting');
+                try {
+                    await this._handlePipelineModule(String(message.module ?? ''), typeof message.threshold === 'number' ? message.threshold : 0.0);
+                }
+                finally {
+                    this._endRun();
+                }
                 break;
             }
             case 'open-file':
@@ -243,7 +295,8 @@ class DockAgentPanel {
                 body: JSON.stringify({
                     dockerfile_path: dockerfilePath,
                     workspace_path: workspacePath,
-                    threshold
+                    threshold,
+                    execute: true
                 })
             });
             if (!response.ok) {
@@ -276,7 +329,21 @@ class DockAgentPanel {
                     }
                     if (event.step === 'done') {
                         const outputPath = event.output_path ?? '';
-                        this._postPersistent('pipeline-success', 'success', event.message);
+                        if (event.results) {
+                            const { total, failed, passed, cases } = event.results;
+                            const ok = failed === 0;
+                            const summary = ok
+                                ? `${passed} of ${total} container structure tests passed`
+                                : `${failed} of ${total} container structure tests failed`;
+                            this._postPersistent(ok ? 'pipeline-success' : 'pipeline-error', ok ? 'success' : 'error', summary, this._failureDetail(cases));
+                        }
+                        else {
+                            this._postPersistent('pipeline-success', 'success', event.message);
+                        }
+                        // Execution problems are non-fatal — the spec is still usable.
+                        if (event.warning) {
+                            this._postStep(event.warning);
+                        }
                         if (outputPath) {
                             const doc = await vscode.workspace.openTextDocument(outputPath);
                             vscode.window.showTextDocument(doc);
@@ -296,7 +363,15 @@ class DockAgentPanel {
         }
     }
     _postStatus(label, meta) {
-        this._view?.webview.postMessage({ type: 'status-update', label, meta });
+        this._runLabel = label;
+        this._runMeta = meta ?? '';
+        // startedAt lets a rebuilt webview re-arm the strip with the correct elapsed time.
+        this._view?.webview.postMessage({
+            type: 'status-update',
+            label,
+            meta,
+            startedAt: this._runStartedAt || Date.now()
+        });
     }
     /** A pipeline milestone: kept in the transcript, does not end the run. */
     _postStep(text, detail) {
@@ -359,12 +434,13 @@ class DockAgentPanel {
             S1: 'Reading image layers',
             S2: 'Scoring files',
             S3: 'Choosing test types',
-            S4: 'Collecting versions'
+            S4: 'Collecting versions',
+            S5: 'Running tests'
         };
         if (byStep[step]) {
             // Test-generation steps carry useful counts after the dash
             // ("S1 — Found 12 layers, 3400 files, …") — keep those as meta.
-            const rest = message.replace(/^S[0-4]\s*[—–-]\s*/, '').trim();
+            const rest = message.replace(/^S[0-5]\s*[—–-]\s*/, '').trim();
             const isStats = /\d/.test(rest) && rest.includes(',');
             return {
                 label: byStep[step],
@@ -403,6 +479,19 @@ class DockAgentPanel {
             .replace(/^failed to solve:\s*/i, '')
             .trim();
         return this._truncate(firstLine, 60);
+    }
+    /** Render failing cases for the collapsible detail panel. */
+    _failureDetail(cases) {
+        const failing = (cases || []).filter(c => !c.passed);
+        if (failing.length === 0) {
+            return undefined;
+        }
+        return failing
+            .map(c => {
+            const errors = (c.errors || []).map(e => `    ${e}`).join('\n');
+            return errors ? `✗ ${c.name}\n${errors}` : `✗ ${c.name}`;
+        })
+            .join('\n\n');
     }
     _truncate(text, max) {
         const clean = text.replace(/\s+/g, ' ').trim();

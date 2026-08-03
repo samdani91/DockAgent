@@ -27,8 +27,11 @@ exports.deactivate = exports.activate = void 0;
 const vscode = __importStar(require("vscode"));
 const DockAgentPanel_1 = require("./DockAgentPanel");
 function activate(context) {
-    // Register the webview view provider (sidebar panel)
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider('dockagent.chatView', new DockAgentPanel_1.DockAgentPanel(context)));
+    // Register the webview view provider (sidebar panel).
+    // retainContextWhenHidden keeps the panel's DOM alive while it is collapsed,
+    // so an in-flight run — its status strip, timer and scroll position — is
+    // still there when the user reopens it.
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider('dockagent.chatView', new DockAgentPanel_1.DockAgentPanel(context), { webviewOptions: { retainContextWhenHidden: true } }));
     // Register commands
     context.subscriptions.push(vscode.commands.registerCommand('dockagent.runAll', () => {
         vscode.commands.executeCommand('dockagent.chatView.focus');
