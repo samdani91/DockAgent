@@ -11,12 +11,10 @@ from dotenv import load_dotenv
 
 load_dotenv()  # loads backend/.env into os.environ before anything reads env vars
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("dockagent")
+from dockagent_logging import configure, get_logger
+
+configure()   # honours DOCKAGENT_LOG_LEVEL, defaults to INFO
+log = get_logger("api")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,8 +82,10 @@ async def run_test_generation(request: TestPipelineRequest) -> StreamingResponse
         try:
             from test_generation.pipeline import TestPipeline
 
+            plog = get_logger("test")
+
             def progress(step: str, message: str) -> None:
-                log.info("[%s] %s", step, message)
+                plog.info("%s", message)
                 event_queue.put({"step": step, "message": message})
 
             result = TestPipeline().run(
@@ -202,8 +202,10 @@ async def run_dockerfile_generation(request: GenerateRequest) -> StreamingRespon
         try:
             workspace = Path(request.workspace_path)
 
+            plog = get_logger("generate")
+
             def progress(step: str, message: str) -> None:
-                log.info("[%s] %s", step, message)
+                plog.info("%s", message)
                 event_queue.put({"step": step, "message": message})
 
             # ── Validate workspace ──────────────────────────────────────────
@@ -369,8 +371,10 @@ async def run_flakiness_repair(request: FlakinessRequest) -> StreamingResponse:
         try:
             workspace = Path(request.workspace_path)
 
+            plog = get_logger("flakiness")
+
             def progress(step: str, message: str) -> None:
-                log.info("[%s] %s", step, message)
+                plog.info("%s", message)
                 event_queue.put({"step": step, "message": message})
 
             # ── Validate ───────────────────────────────────────────────────
