@@ -12,9 +12,13 @@ be tested, without an API key or network access.
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import re
+import time
 from typing import Protocol, runtime_checkable
+
+log = logging.getLogger("dockagent.embed")
 
 # Task types improve retrieval quality by embedding queries and documents
 # into complementary spaces.
@@ -59,9 +63,13 @@ class GeminiEmbedder:
     def embed(self, texts: list[str], task_type: str = TASK_DOCUMENT) -> list[list[float]]:
         from google.genai import types
 
+        started = time.monotonic()
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.BATCH_SIZE):
             chunk = texts[start:start + self.BATCH_SIZE]
+            log.debug("%s batch %d-%d of %d (%s)",
+                      self._model, start + 1, min(start + len(chunk), len(texts)),
+                      len(texts), task_type)
             # One Content per document — a bare list[str] would be treated as
             # a single document split into parts.
             contents = [
@@ -80,6 +88,10 @@ class GeminiEmbedder:
                     f"{len(chunk)} documents."
                 )
             vectors.extend(list(e.values or []) for e in embeddings)
+
+        if len(texts) > 1:
+            log.info("%s embedded %d documents in %.1fs",
+                     self._model, len(texts), time.monotonic() - started)
         return vectors
 
 

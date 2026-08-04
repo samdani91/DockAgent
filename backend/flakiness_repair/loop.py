@@ -12,6 +12,7 @@ sets T = 3.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
@@ -20,6 +21,8 @@ from .embed import LexicalEmbedder, cosine
 from .knowledge import DEFAULT_TOP_K, build_query
 from .preprocess import ErrorFeatures
 from .repair import FalseRepairRecord, generate_repair
+
+log = logging.getLogger("dockagent.flakiness")
 
 if TYPE_CHECKING:
     from dockerfile_generation.build import DockerBuilder
@@ -99,6 +102,7 @@ def repair_flakiness(
     current = dockerfile
 
     for attempt_no in range(1, max_attempts + 1):
+        log.info("── repair attempt %d of %d ──", attempt_no, max_attempts)
         emit("repair", f"Generating repair {attempt_no} of {max_attempts}…")
         try:
             candidate = generate_repair(
@@ -130,6 +134,8 @@ def repair_flakiness(
                 succeeded=True,
                 demonstration_ids=candidate.demonstration_ids,
             ))
+            log.info("repair accepted after %d attempt(s), validated by %d clean builds",
+                     attempt_no, validation.successes)
             emit("repair", f"Repair validated across {iterations} builds.")
             return RepairOutcome(
                 success=True,
@@ -150,7 +156,11 @@ def repair_flakiness(
 
         # -- Algorithm 1: has this same error already defeated us T times? ---
         similar = _count_similar_failures(new_error, feedback, similarity)
+        log.info("attempt %d failed; %d prior attempt(s) failed the same way",
+                 attempt_no, similar)
         if similar + 1 >= max_attempts:
+            log.warning("%s giving up after %d similar failures",
+                        UNABLE_TO_RESOLVE, similar + 1)
             emit("repair", f"{UNABLE_TO_RESOLVE} The same error keeps recurring.")
             return RepairOutcome(
                 success=False,

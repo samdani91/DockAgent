@@ -11,10 +11,13 @@ instability observed", never as "not flaky".
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
 from .preprocess import ErrorFeatures, preprocess
+
+log = logging.getLogger("dockagent.detect")
 
 if TYPE_CHECKING:
     from dockerfile_generation.build import DockerBuilder
@@ -128,6 +131,13 @@ def detect(
         verdict = DETERMINISTIC_FAILURE
     else:
         verdict = STABLE
+
+    log.info("verdict %s — %d/%d builds succeeded", verdict, successes, iterations)
+    for observation in observations:
+        if observation.error and observation.error.dockerfile_error_line:
+            log.info("  failing instruction: %s",
+                     observation.error.dockerfile_error_line[:100])
+            break
 
     return FlakinessReport(
         verdict=verdict,

@@ -11,6 +11,7 @@ Records come from Flake4Dock via data/extract_flake4dock.py.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,8 @@ from .embed import TASK_DOCUMENT, TASK_QUERY, cosine
 
 if TYPE_CHECKING:
     from .embed import Embedder
+
+log = logging.getLogger("dockagent.retrieve")
 
 DEFAULT_CORPUS = Path(__file__).parent / "data" / "flake4dock_repairs.jsonl"
 DEFAULT_CACHE = Path(__file__).parent / "data" / ".embedding_cache.json"
@@ -132,10 +135,12 @@ class KnowledgeBase:
         fingerprint = self._fingerprint(embedder.name)
 
         if cache and self._load_cache(cache, fingerprint):
+            log.info("loaded %d cached embeddings (%s)", len(self._vectors), embedder.name)
             emit("retrieve", f"Loaded {len(self._vectors)} cached embeddings.")
             return
 
         documents = [d.as_document() for d in self.demonstrations]
+        log.info("indexing %d demonstrations with %s", len(documents), embedder.name)
         emit("retrieve", f"Embedding {len(documents)} demonstrations…")
         self._vectors = embedder.embed(documents, task_type=TASK_DOCUMENT)
         self._embedder_name = embedder.name
@@ -174,7 +179,12 @@ class KnowledgeBase:
             if demo.id not in blocked
         ]
         scored.sort(key=lambda hit: hit.score, reverse=True)
-        return scored[:k]
+        top = scored[:k]
+        for rank, hit in enumerate(top, 1):
+            log.info("  #%d  %.3f  %-32s %s",
+                     rank, hit.score, hit.demonstration.label or "?",
+                     hit.demonstration.project)
+        return top
 
     # -- cache -------------------------------------------------------------
 
