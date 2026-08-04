@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
+
+log = logging.getLogger("dockagent.generate")
 
 if TYPE_CHECKING:
     from .build import DockerBuilder
@@ -66,6 +69,7 @@ def run_loop(
     attempt: int = 0
 
     for attempt in range(1, max_attempts + 1):
+        log.info("── build attempt %d of %d ──", attempt, max_attempts)
         if on_attempt:
             on_attempt(attempt, f"Build attempt {attempt}/{max_attempts}…")
 
@@ -73,6 +77,7 @@ def run_loop(
         last_log = result.log
 
         if result.success:
+            log.info("succeeded on attempt %d of %d", attempt, max_attempts)
             if on_attempt:
                 on_attempt(attempt, f"Build succeeded on attempt {attempt}.")
             return LoopResult(

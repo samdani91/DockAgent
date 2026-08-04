@@ -1,10 +1,14 @@
 """DockerBuilder protocol, real subprocess implementation, and fake for tests."""
 
+import logging
 import os
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+
+log = logging.getLogger("dockagent.build")
 
 
 @dataclass
@@ -50,6 +54,14 @@ class RealDockerBuilder:
             if self._no_cache:
                 cmd.insert(2, "--no-cache")
 
+            log.info(
+                "docker build%s (context %s)",
+                " --no-cache" if self._no_cache else "",
+                context_dir,
+            )
+            log.debug("%s", " ".join(cmd))
+            started = time.monotonic()
+
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -57,21 +69,33 @@ class RealDockerBuilder:
                 timeout=self._timeout,
                 cwd=context_dir,
             )
+            elapsed = time.monotonic() - started
             # docker build writes everything to stderr with --progress=plain
-            log = (proc.stdout + proc.stderr).strip()
+            build_log = (proc.stdout + proc.stderr).strip()
+            image_id = _read_iid(iid_path) if proc.returncode == 0 else None
+
+            if proc.returncode == 0:
+                log.info("build succeeded in %s (%s)",
+                         _duration(elapsed), (image_id or "no image id")[:19])
+            else:
+                log.warning("build failed in %s (exit %d)", _duration(elapsed), proc.returncode)
+                log.debug("build log tail:\n%s", "\n".join(build_log.splitlines()[-20:]))
+
             return BuildResult(
                 success=proc.returncode == 0,
                 exit_code=proc.returncode,
-                log=log,
-                image_id=_read_iid(iid_path) if proc.returncode == 0 else None,
+                log=build_log,
+                image_id=image_id,
             )
         except subprocess.TimeoutExpired:
+            log.error("build timed out after %ds", self._timeout)
             return BuildResult(
                 success=False,
                 exit_code=-1,
                 log=f"Build timed out after {self._timeout} seconds.",
             )
         except FileNotFoundError:
+            log.error("docker executable not found on PATH")
             return BuildResult(
                 success=False,
                 exit_code=-1,
@@ -83,6 +107,13 @@ class RealDockerBuilder:
                     os.unlink(path)
                 except OSError:
                     pass
+
+
+def _duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    return f"{minutes}m{secs:02d}s"
 
 
 def _read_iid(path: str) -> str | None:

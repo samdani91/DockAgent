@@ -1,6 +1,10 @@
 """LLMClient protocol + provider implementations (Gemini, OpenAI)."""
 
+import logging
+import time
 from typing import Protocol, runtime_checkable
+
+log = logging.getLogger("dockagent.llm")
 
 
 @runtime_checkable
@@ -26,12 +30,22 @@ class GeminiClient:
     def complete(self, system: str, user: str) -> str:
         from google.genai import types
 
-        response = self._client.models.generate_content(
-            model=self._model,
-            config=types.GenerateContentConfig(system_instruction=system),
-            contents=user,
-        )
-        return response.text or ""
+        log.debug("%s ← prompt %d chars", self._model, len(user))
+        started = time.monotonic()
+        try:
+            response = self._client.models.generate_content(
+                model=self._model,
+                config=types.GenerateContentConfig(system_instruction=system),
+                contents=user,
+            )
+        except Exception as exc:
+            log.error("%s failed after %.1fs: %s",
+                      self._model, time.monotonic() - started, exc)
+            raise
+        text = response.text or ""
+        log.info("%s replied %s chars in %.1fs",
+                 self._model, f"{len(text):,}", time.monotonic() - started)
+        return text
 
 
 class OpenAIClient:
@@ -47,11 +61,21 @@ class OpenAIClient:
         self._model = model
 
     def complete(self, system: str, user: str) -> str:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
-        return response.choices[0].message.content or ""
+        log.debug("%s ← prompt %d chars", self._model, len(user))
+        started = time.monotonic()
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+        except Exception as exc:
+            log.error("%s failed after %.1fs: %s",
+                      self._model, time.monotonic() - started, exc)
+            raise
+        text = response.choices[0].message.content or ""
+        log.info("%s replied %s chars in %.1fs",
+                 self._model, f"{len(text):,}", time.monotonic() - started)
+        return text
