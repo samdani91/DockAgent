@@ -184,6 +184,10 @@ class DockAgentPanel {
             await this._handleTestGeneration(threshold);
             return;
         }
+        if (module === 'flakiness') {
+            await this._handleFlakinessRepair();
+            return;
+        }
         if (module === 'all') {
             this._postStep('**Step 1 of 2** — Dockerfile');
             const generated = await this._handleDockerfileGeneration();
@@ -270,6 +274,120 @@ class DockAgentPanel {
         catch (error) {
             this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Dockerfile generation failed. Is the backend running?'));
             return false;
+        }
+    }
+    async _handleFlakinessRepair() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            this._postPersistent('pipeline-error', 'error', 'No workspace folder is open. Open a project with a Dockerfile first.');
+            return;
+        }
+        const workspaceUri = workspaceFolders[0].uri;
+        const dockerfileUri = vscode.Uri.joinPath(workspaceUri, 'Dockerfile');
+        try {
+            await vscode.workspace.fs.stat(dockerfileUri);
+        }
+        catch {
+            this._postPersistent('pipeline-error', 'error', 'No Dockerfile found in the workspace root. Generate one first.');
+            return;
+        }
+        // Flakiness only shows up without the build cache, so every build is a
+        // cold one. Say so before the user is left staring at a slow run.
+        this._postStep('Checking for flakiness. Builds run **without cache**, so this is slow — ' +
+            'up to 8 full rebuilds if a repair takes several attempts.');
+        try {
+            const response = await fetch(`${this._backendBaseUrl}/pipeline/flakiness`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workspace_path: workspaceUri.fsPath,
+                    dockerfile_path: dockerfileUri.fsPath,
+                    repair: true,
+                    apply: false // write alongside; the user reviews a diff
+                })
+            });
+            if (!response.ok) {
+                throw new Error(`Backend returned ${response.status}`);
+            }
+            if (!response.body) {
+                throw new Error('No response body from backend.');
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) {
+                        continue;
+                    }
+                    let event;
+                    try {
+                        event = JSON.parse(line.slice(6));
+                    }
+                    catch {
+                        continue;
+                    }
+                    if (event.step === 'done') {
+                        await this._reportFlakiness(event, dockerfileUri);
+                    }
+                    else if (event.step === 'error') {
+                        this._postPersistent('pipeline-error', 'error', event.message);
+                    }
+                    else {
+                        this._handleProgressEvent(event.step, event.message);
+                    }
+                }
+            }
+        }
+        catch (error) {
+            this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Flakiness check failed. Is the backend running?'));
+        }
+    }
+    /** Render the flakiness verdict, and open a diff when a repair was produced. */
+    async _reportFlakiness(event, dockerfileUri) {
+        const detection = event.detection;
+        const repair = event.repair;
+        if (detection) {
+            const detail = detection.failing_instruction
+                ? `Failing instruction:\n    ${detection.failing_instruction}`
+                : undefined;
+            if (detection.verdict === 'stable') {
+                this._postPersistent('pipeline-success', 'success', event.message);
+            }
+            else {
+                const headline = detection.is_flaky
+                    ? `Flaky: ${detection.successes} of ${detection.iterations} builds passed with identical input`
+                    : `Failed all ${detection.iterations} builds`;
+                this._postStep(headline, detail);
+            }
+        }
+        if (!repair) {
+            return;
+        }
+        if (repair.success && repair.repaired_path) {
+            const summary = `${repair.message} (${repair.attempts} attempt${repair.attempts === 1 ? '' : 's'})` +
+                (repair.applied ? '' : '\n\nReview the diff and apply it if you agree.');
+            this._postPersistent('pipeline-success', 'success', summary, repair.demonstrations?.length
+                ? `Guided by similar repairs:\n${repair.demonstrations.map(d => `    ${d}`).join('\n')}`
+                : undefined);
+            const repairedUri = vscode.Uri.file(repair.repaired_path);
+            if (repair.applied) {
+                const doc = await vscode.workspace.openTextDocument(repairedUri);
+                await vscode.window.showTextDocument(doc);
+            }
+            else {
+                await vscode.commands.executeCommand('vscode.diff', dockerfileUri, repairedUri, 'Dockerfile ↔ Proposed repair');
+            }
+        }
+        else {
+            this._postPersistent('pipeline-error', 'error', repair.message);
         }
     }
     async _handleTestGeneration(threshold) {
@@ -415,6 +533,45 @@ class DockAgentPanel {
                 milestone: true
             };
         }
+        // ── Flakiness detection and repair ───────────────────────────────────
+        const flakyBuild = message.match(/Build (\d+) of (\d+)/i);
+        if (flakyBuild) {
+            return {
+                label: step === 'repair' ? 'Validating the repair' : 'Testing for flakiness',
+                meta: `build ${flakyBuild[1]} of ${flakyBuild[2]}`
+            };
+        }
+        const generatingRepair = message.match(/Generating repair (\d+) of (\d+)/i);
+        if (generatingRepair) {
+            return {
+                label: 'Writing a repair',
+                meta: `attempt ${generatingRepair[1]} of ${generatingRepair[2]}`
+            };
+        }
+        const validating = message.match(/Validating repair (\d+) \((\d+) builds?\)/i);
+        if (validating) {
+            return { label: 'Validating the repair', meta: `${validating[2]} clean builds needed` };
+        }
+        const retrieved = message.match(/Retrieved (\d+) similar repairs?:\s*(.+)/i);
+        if (retrieved) {
+            return {
+                label: `Found ${retrieved[1]} similar repairs`,
+                meta: this._truncate(retrieved[2], 46),
+                milestone: true
+            };
+        }
+        if (/Unable to resolve/i.test(message)) {
+            return { label: 'Could not repair — the same error kept recurring', milestone: true };
+        }
+        if (/Repair validated across/i.test(message)) {
+            return { label: 'Repair validated', milestone: true };
+        }
+        if (/still fails/i.test(message)) {
+            return { label: 'That repair still fails — trying again' };
+        }
+        if (/without cache/i.test(message)) {
+            return { label: 'Testing for flakiness', meta: 'builds run without cache' };
+        }
         // Phase B already emits short, human-readable lines — pass them through
         // rather than flattening every sub-step to one label.
         if (step === 'optimizing') {
@@ -430,6 +587,9 @@ class DockAgentPanel {
             checking: 'Checking workspace',
             context: 'Reading project files',
             generating: 'Writing the Dockerfile',
+            detect: 'Testing for flakiness',
+            retrieve: 'Finding similar repairs',
+            repair: 'Repairing',
             S0: 'Building image',
             S1: 'Reading image layers',
             S2: 'Scoring files',
