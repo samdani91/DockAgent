@@ -345,6 +345,188 @@ async def run_dockerfile_generation(request: GenerateRequest) -> StreamingRespon
 
 
 # ---------------------------------------------------------------------------
+# Flakiness detection and repair (SSE)
+# ---------------------------------------------------------------------------
+
+class FlakinessRequest(BaseModel):
+    workspace_path: str
+    dockerfile_path: str | None = None   # defaults to <workspace>/Dockerfile
+    iterations: int = 2                  # paper's n
+    max_attempts: int = 3                # paper's T
+    top_k: int = 3
+    repair: bool = True                  # detect only when False
+    apply: bool = False                  # overwrite the Dockerfile in place
+    provider: str = "gemini"
+    model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-2.5-pro"))
+    build_timeout: int = 900
+
+
+@app.post("/pipeline/flakiness")
+async def run_flakiness_repair(request: FlakinessRequest) -> StreamingResponse:
+    event_queue: thread_queue.Queue = thread_queue.Queue()
+
+    def _pipeline_thread() -> None:
+        try:
+            workspace = Path(request.workspace_path)
+
+            def progress(step: str, message: str) -> None:
+                log.info("[%s] %s", step, message)
+                event_queue.put({"step": step, "message": message})
+
+            # ── Validate ───────────────────────────────────────────────────
+            progress("checking", "Checking workspace…")
+            if not workspace.is_dir():
+                raise ValueError(f"Workspace path does not exist: {workspace}")
+
+            dockerfile_path = (
+                Path(request.dockerfile_path) if request.dockerfile_path
+                else workspace / "Dockerfile"
+            )
+            if not dockerfile_path.is_file():
+                raise ValueError(
+                    f"No Dockerfile found at {dockerfile_path}. Generate one first."
+                )
+            dockerfile = dockerfile_path.read_text(encoding="utf-8")
+
+            from dockerfile_generation.build import RealDockerBuilder
+            from flakiness_repair.detector import detect
+
+            # Caching is what hides flakiness — it must be off.
+            builder = RealDockerBuilder(timeout=request.build_timeout, no_cache=True)
+
+            # ── Detect ─────────────────────────────────────────────────────
+            progress(
+                "detect",
+                f"Building {request.iterations}× without cache — this takes a while.",
+            )
+            report = detect(
+                dockerfile, str(workspace), builder,
+                iterations=request.iterations, progress=progress,
+            )
+
+            done: dict = {
+                "step": "done",
+                "output_path": str(dockerfile_path),
+                "verdict": report.verdict,
+                "message": report.summary(),
+                "detection": {
+                    "verdict": report.verdict,
+                    "iterations": report.iterations,
+                    "successes": report.successes,
+                    "failures": report.failures,
+                    "is_flaky": report.is_flaky,
+                    "failing_instruction": (
+                        report.primary_error.dockerfile_error_line
+                        if report.primary_error else ""
+                    ),
+                },
+                "repair": None,
+            }
+
+            if not report.needs_repair or not request.repair:
+                event_queue.put(done)
+                return
+
+            # ── Retrieve ───────────────────────────────────────────────────
+            from dockerfile_generation.llm import GeminiClient, OpenAIClient
+            from flakiness_repair.embed import default_embedder
+            from flakiness_repair.knowledge import KnowledgeBase
+            from flakiness_repair.loop import repair_flakiness
+
+            provider = request.provider.lower()
+            if provider == "openai":
+                if not os.environ.get("OPENAI_API_KEY", "").strip():
+                    raise ValueError("OPENAI_API_KEY is not set.")
+                llm = OpenAIClient(model=request.model)
+            else:
+                if not os.environ.get("GEMINI_API_KEY", "").strip():
+                    raise ValueError("GEMINI_API_KEY is not set.")
+                llm = GeminiClient(model=request.model)
+
+            knowledge = embedder = None
+            try:
+                embedder = default_embedder()
+                knowledge = KnowledgeBase.load()
+                knowledge.index(embedder, progress=progress)
+            except Exception as exc:            # retrieval is optional
+                log.warning("Retrieval unavailable: %s", exc)
+                progress("retrieve", f"Retrieval unavailable ({exc}); continuing without examples.")
+                knowledge = embedder = None
+
+            # ── Repair ─────────────────────────────────────────────────────
+            outcome = repair_flakiness(
+                dockerfile=dockerfile,
+                context_dir=str(workspace),
+                report=report,
+                builder=builder,
+                llm=llm,
+                knowledge=knowledge,
+                embedder=embedder,
+                iterations=request.iterations,
+                max_attempts=request.max_attempts,
+                top_k=request.top_k,
+                progress=progress,
+            )
+
+            done["repair"] = {
+                "success": outcome.success,
+                "attempts": outcome.attempt_count,
+                "message": outcome.message,
+                "demonstrations": (
+                    outcome.attempts[0].demonstration_ids if outcome.attempts else []
+                ),
+            }
+
+            if outcome.success and outcome.dockerfile:
+                if request.apply:
+                    dockerfile_path.write_text(outcome.dockerfile, encoding="utf-8")
+                    repaired_path = dockerfile_path
+                else:
+                    # Written alongside rather than over the user's file; the
+                    # extension opens the two side by side.
+                    out_dir = workspace / ".dockagent"
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    repaired_path = out_dir / "Dockerfile.repaired"
+                    repaired_path.write_text(outcome.dockerfile, encoding="utf-8")
+
+                done["repair"]["repaired_path"] = str(repaired_path)
+                done["repair"]["applied"] = request.apply
+                done["output_path"] = str(dockerfile_path)
+                done["message"] = outcome.message
+            else:
+                done["message"] = outcome.message
+
+            event_queue.put(done)
+
+        except Exception as exc:
+            tb = traceback.format_exc()
+            log.error("Flakiness pipeline failed:\n%s", tb)
+            event_queue.put({
+                "step": "error",
+                "message": f"{type(exc).__name__}: {exc}",
+            })
+        finally:
+            event_queue.put(None)  # sentinel
+
+    thread = threading.Thread(target=_pipeline_thread, daemon=True)
+    thread.start()
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        import asyncio
+        while True:
+            try:
+                event = event_queue.get_nowait()
+            except thread_queue.Empty:
+                await asyncio.sleep(0.1)
+                continue
+            if event is None:
+                break
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
 # Generic pipeline stub (other modules still work)
 # ---------------------------------------------------------------------------
 
