@@ -62,6 +62,43 @@ interface TestDoneEvent {
   } | null;
 }
 
+/** Short module tags prefixed onto status labels during a coordinated run. */
+const STAGE_LABELS: Record<string, string> = {
+  generate: 'Module 1',
+  test: 'Module 2',
+  flakiness: 'Module 3'
+};
+
+interface RunState {
+  stage: string;
+  feedback_rounds: number;
+  reverified: boolean;
+  generation?: { success: boolean; attempts: number; message: string } | null;
+  test?: {
+    executed: boolean;
+    total: number;
+    passed: number;
+    failed: number;
+    failing: { name: string; errors: string[] }[];
+  } | null;
+  flakiness?: {
+    verdict: string;
+    repaired: boolean;
+    applied: boolean;
+    repaired_path?: string | null;
+  } | null;
+  history: { stage: string; outcome: string; message: string }[];
+}
+
+/** Events from POST /pipeline/run — every one carries the stage that emitted it. */
+interface RunEvent {
+  stage: string;                 // generate | test | flakiness | agent
+  step: string;
+  message: string;
+  output_path?: string;
+  state?: RunState;
+}
+
 export class DockAgentPanel implements vscode.WebviewViewProvider {
 
   public static currentPanel: DockAgentPanel | undefined;
@@ -232,7 +269,10 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       const response = await fetch(`${this._backendBaseUrl}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text })
+        body: JSON.stringify({
+          message: text,
+          workspace_path: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        })
       });
 
       if (!response.ok) {
@@ -267,29 +307,131 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     }
 
     if (module === 'all') {
-      this._postStep('**Step 1 of 2** — Dockerfile');
-      const generated = await this._handleDockerfileGeneration();
-      if (generated) {
-        this._postStep('**Step 2 of 2** — Container Structure Tests');
-        await this._handleTestGeneration(threshold);
-      }
+      await this._handleCoordinatedRun(threshold);
       return;
     }
 
+    this._postPersistent('pipeline-error', 'error', `Unknown action: ${module}`);
+  }
+
+  /**
+   * Run all three modules under backend agent coordination.
+   *
+   * The chaining used to live here, which meant the extension decided the
+   * order and nothing could route a failure backwards. The agent owns that now,
+   * so this method only renders what it reports.
+   */
+  private async _handleCoordinatedRun(threshold: number) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      this._postPersistent('pipeline-error', 'error',
+        'No workspace folder is open. Open a project folder first.');
+      return;
+    }
+
+    const workspaceUri = workspaceFolders[0].uri;
+
+    this._postStep(
+      'Running the full pipeline: **Dockerfile → container tests → flakiness**. ' +
+      'Failing tests are routed back for repair, and a flakiness fix is re-verified. ' +
+      'Flakiness builds run without cache, so expect this to take a while.'
+    );
+
     try {
-      const response = await fetch(`${this._backendBaseUrl}/pipeline/${encodeURIComponent(module)}`, {
-        method: 'POST'
+      const response = await fetch(`${this._backendBaseUrl}/pipeline/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_path: workspaceUri.fsPath,
+          threshold,
+          apply: false
+        })
       });
 
-      if (!response.ok) {
-        throw new Error(`Backend request failed with status ${response.status}`);
-      }
+      if (!response.ok) { throw new Error(`Backend returned ${response.status}`); }
+      if (!response.body) { throw new Error('No response body from backend.'); }
 
-      const data = (await response.json()) as { detail?: string; status?: string };
-      this._postPersistent('pipeline-success', 'success', data.detail ?? `${module} pipeline completed.`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) { break; }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) { continue; }
+          let event: RunEvent;
+          try {
+            event = JSON.parse(line.slice(6));
+          } catch { continue; }
+
+          if (event.step === 'done') {
+            await this._reportRun(event);
+          } else if (event.step === 'error') {
+            this._postPersistent('pipeline-error', 'error', event.message);
+          } else if (event.stage === 'agent') {
+            // The agent's routing decisions are the most interesting thing on
+            // screen — they are what makes the feedback loop visible.
+            this._postStep(`**Agent** — ${event.message}`);
+          } else {
+            this._handleProgressEvent(event.step, event.message, event.stage);
+          }
+        }
+      }
     } catch (error) {
-      this._postPersistent('pipeline-error', 'error', this._formatError(error, `Unable to reach the backend pipeline endpoint for ${module}.`));
+      this._postPersistent('pipeline-error', 'error',
+        this._formatError(error, 'Full pipeline failed. Is the backend running?'));
     }
+  }
+
+  /** Closing summary plus a recap of what each module found. */
+  private async _reportRun(event: RunEvent) {
+    const state = event.state;
+    const detail = state ? this._runDetail(state) : undefined;
+    const failed =
+      state?.test && state.test.executed && state.test.failed > 0;
+
+    this._postPersistent(
+      failed ? 'pipeline-error' : 'pipeline-success',
+      failed ? 'error' : 'success',
+      event.message,
+      detail
+    );
+
+    if (event.output_path) {
+      try {
+        const doc = await vscode.workspace.openTextDocument(event.output_path);
+        await vscode.window.showTextDocument(doc);
+      } catch { /* the file may not exist if generation failed */ }
+    }
+  }
+
+  private _runDetail(state: RunState): string {
+    const lines: string[] = [];
+    if (state.generation) {
+      lines.push(`Dockerfile: ${state.generation.message}`);
+    }
+    if (state.test) {
+      lines.push(state.test.executed
+        ? `Tests: ${state.test.passed}/${state.test.total} passed`
+        : 'Tests: written but not executed');
+      for (const t of state.test.failing ?? []) {
+        lines.push(`  ✗ ${t.name}${t.errors?.[0] ? ` — ${t.errors[0]}` : ''}`);
+      }
+    }
+    if (state.flakiness) {
+      lines.push(`Flakiness: ${state.flakiness.verdict}`);
+      if (state.flakiness.repaired) {
+        lines.push(`  repair written to ${state.flakiness.repaired_path}`);
+      }
+    }
+    lines.push(`Feedback rounds used: ${state.feedback_rounds}`);
+    return lines.join('\n');
   }
 
   private async _handleDockerfileGeneration(): Promise<boolean> {
@@ -777,8 +919,11 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
   }
 
   /** Route one pipeline event to the status strip and, if notable, the transcript. */
-  private _handleProgressEvent(step: string, message: string) {
+  private _handleProgressEvent(step: string, message: string, stage?: string) {
     const view = this._progressView(step, message);
+    if (stage && STAGE_LABELS[stage]) {
+      view.label = `${STAGE_LABELS[stage]} · ${view.label}`;
+    }
     this._postStatus(view.label, view.meta);
     if (view.milestone) {
       const text = view.meta ? `${view.label} — ${view.meta}` : view.label;
