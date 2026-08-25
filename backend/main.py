@@ -23,6 +23,10 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="DockAgent Backend", version="0.1.0")
 
+#: Last completed run per workspace, so /chat can answer from real results.
+#: Process-local and lost on restart — deliberately not persisted.
+_last_state: dict = {}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,6 +42,7 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     message: str
+    workspace_path: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -51,10 +56,16 @@ def health() -> dict[str, str]:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
-    reply = (
-        f'DockAgent backend received: "{request.message}". '
-        "This is a starter backend; wire your real logic here."
-    )
+    """Answer a developer question using the most recent run as context."""
+    from coordination.explain import answer_query
+    from coordination.orchestrator import PipelineRequest
+    from coordination.runners import make_llm
+
+    state = _last_state.get(request.workspace_path or "") if request.workspace_path \
+        else (next(iter(_last_state.values())) if _last_state else None)
+
+    llm = make_llm(PipelineRequest(workspace_path=request.workspace_path or "."))
+    reply = answer_query(request.message, state, llm)
     return ChatResponse(reply=reply)
 
 
@@ -161,7 +172,7 @@ class GenerateRequest(BaseModel):
     doc_paths: list[str] = []   # if empty, auto-detected from workspace root
     max_attempts: int = 6
     provider: str = "gemini"          # "gemini" | "openai"
-    model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-2.5-pro"))
+    model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-flash-latest"))
     build_timeout: int = 900
     optimize: bool = False      # DRAFT Phase B — multi-stage image optimization
 
@@ -359,7 +370,7 @@ class FlakinessRequest(BaseModel):
     repair: bool = True                  # detect only when False
     apply: bool = False                  # overwrite the Dockerfile in place
     provider: str = "gemini"
-    model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-2.5-pro"))
+    model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-flash-latest"))
     build_timeout: int = 900
 
 
@@ -530,25 +541,107 @@ async def run_flakiness_repair(request: FlakinessRequest) -> StreamingResponse:
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-# ---------------------------------------------------------------------------
-# Generic pipeline stub (other modules still work)
-# ---------------------------------------------------------------------------
-
-class PipelineResponse(BaseModel):
-    module: str
-    status: str
-    detail: str
-
-
-@app.post("/pipeline/{module}", response_model=PipelineResponse)
-def pipeline(module: str) -> PipelineResponse:
-    return PipelineResponse(
-        module=module,
-        status="queued",
-        detail=f"Pipeline module '{module}' was accepted by the backend stub.",
-    )
 
 
 if __name__ == "__main__":
     import uvicorn  # type: ignore[import]
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
+
+# ---------------------------------------------------------------------------
+# Agentic coordination — full pipeline with the unified feedback loop (SSE)
+# ---------------------------------------------------------------------------
+
+class RunRequest(BaseModel):
+    workspace_path: str
+    threshold: float = 0.0
+    iterations: int = 2                 # flakiness builds per check
+    max_attempts: int = 6               # Module 1 build/repair cap
+    max_feedback_rounds: int = 2        # test-failure rounds routed back
+    provider: str = "gemini"
+    model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-flash-latest"))
+    optimize: bool = False
+    apply: bool = False                 # apply a flakiness repair in place
+    build_timeout: int = 900
+    execute_timeout: int = 300
+
+
+@app.post("/pipeline/run")
+async def run_full_pipeline(request: RunRequest) -> StreamingResponse:
+    """Run Modules 1-3 under agent coordination, closing the feedback loop."""
+    event_queue: thread_queue.Queue = thread_queue.Queue()
+
+    def _pipeline_thread() -> None:
+        try:
+            from coordination.orchestrator import PipelineRequest, run_pipeline
+
+            loggers = {
+                "generate": get_logger("generate"),
+                "test": get_logger("test"),
+                "flakiness": get_logger("flakiness"),
+                "agent": get_logger("agent"),
+            }
+
+            def progress(stage: str, step: str, message: str) -> None:
+                loggers.get(stage, log).info("%s", message)
+                event_queue.put({"stage": stage, "step": step, "message": message})
+
+            state = run_pipeline(
+                PipelineRequest(
+                    workspace_path=request.workspace_path,
+                    threshold=request.threshold,
+                    iterations=request.iterations,
+                    max_attempts=request.max_attempts,
+                    max_feedback_rounds=request.max_feedback_rounds,
+                    provider=request.provider,
+                    model=request.model,
+                    optimize=request.optimize,
+                    apply=request.apply,
+                    build_timeout=request.build_timeout,
+                    execute_timeout=request.execute_timeout,
+                ),
+                progress,
+            )
+
+            # Remembered so /chat can answer questions about this run.
+            _last_state[request.workspace_path] = state
+
+            closing = next(
+                (r.message for r in reversed(state.history)
+                 if r.stage == "agent" and r.outcome == "success"),
+                "Pipeline finished.",
+            )
+            event_queue.put({
+                "stage": "agent",
+                "step": "done",
+                "message": closing,
+                "output_path": state.dockerfile_path,
+                "state": state.to_dict(),
+            })
+        except Exception as exc:
+            tb = traceback.format_exc()
+            log.error("Coordinated run failed:\n%s", tb)
+            event_queue.put({
+                "stage": "agent",
+                "step": "error",
+                "message": f"{type(exc).__name__}: {exc}",
+            })
+        finally:
+            event_queue.put(None)  # sentinel
+
+    thread = threading.Thread(target=_pipeline_thread, daemon=True)
+    thread.start()
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        import asyncio
+        while True:
+            try:
+                event = event_queue.get_nowait()
+            except thread_queue.Empty:
+                await asyncio.sleep(0.1)
+                continue
+            if event is None:
+                break
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
