@@ -9,7 +9,7 @@ Output is one line per step, tagged with the module it came from:
     14:23:01 INFO  generate   Build attempt 1/6
     14:23:01 DEBUG build      docker build --no-cache -f /tmp/x.Dockerfile .
     14:25:14 INFO  build      build failed in 2m13s (exit 1)
-    14:25:14 INFO  llm        gemini-2.5-pro replied 1,240 chars in 8.3s
+    14:25:14 INFO  llm        gemini-flash-latest replied 1,240 chars in 8.3s
 
 Set DOCKAGENT_LOG_LEVEL=DEBUG for command lines, prompt sizes and raw output.
 """
@@ -17,12 +17,19 @@ Set DOCKAGENT_LOG_LEVEL=DEBUG for command lines, prompt sizes and raw output.
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import os
 import sys
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 ROOT = "dockagent"
+
+#: Where the rolling log lives unless DOCKAGENT_LOG_FILE says otherwise.
+DEFAULT_LOG_FILE = Path(__file__).parent / "logs" / "dockagent.log"
+MAX_BYTES = 5 * 1024 * 1024
+BACKUP_COUNT = 5
 
 _RESET = "\033[0m"
 _DIM = "\033[2m"
@@ -62,28 +69,99 @@ class ConsoleFormatter(logging.Formatter):
         )
 
 
-def configure(level: str | int | None = None, stream=None) -> logging.Logger:
-    """Install the console handler. Safe to call more than once."""
+def configure(
+    level: str | int | None = None,
+    stream=None,
+    log_file: str | os.PathLike | None = None,
+    file_level: str | int | None = None,
+) -> logging.Logger:
+    """Install the console and rolling-file handlers. Safe to call repeatedly.
+
+    The console stays readable at INFO while the file keeps DEBUG detail — a
+    build that failed an hour ago is exactly when you want the command line and
+    log tail that the terminal omitted.
+
+    Set DOCKAGENT_LOG_FILE=off to disable file logging.
+    """
     stream = stream or sys.stderr
-    resolved = level or os.environ.get("DOCKAGENT_LOG_LEVEL", "INFO")
-    if isinstance(resolved, str):
-        resolved = getattr(logging, resolved.upper(), logging.INFO)
+    console_level = _resolve_level(level or os.environ.get("DOCKAGENT_LOG_LEVEL"), logging.INFO)
+    disk_level = _resolve_level(
+        file_level or os.environ.get("DOCKAGENT_FILE_LOG_LEVEL"), logging.DEBUG
+    )
 
     root = logging.getLogger(ROOT)
-    root.setLevel(resolved)
     root.propagate = False          # don't double-print through the root logger
 
     for handler in list(root.handlers):
+        handler.close()
         root.removeHandler(handler)
 
-    colour = _supports_colour(stream)
-    handler = logging.StreamHandler(stream)
-    handler.setFormatter(ConsoleFormatter(colour=colour))
-    root.addHandler(handler)
+    console = logging.StreamHandler(stream)
+    console.setLevel(console_level)
+    console.setFormatter(ConsoleFormatter(colour=_supports_colour(stream)))
+    root.addHandler(console)
+
+    path = _resolve_log_path(log_file)
+    if path is not None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            rolling = logging.handlers.RotatingFileHandler(
+                path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
+            )
+            rolling.setLevel(disk_level)
+            rolling.setFormatter(FileFormatter())
+            root.addHandler(rolling)
+        except OSError as exc:
+            # Logging must never take the application down with it.
+            console.handle(logging.LogRecord(
+                f"{ROOT}.logging", logging.WARNING, __file__, 0,
+                "file logging disabled (%s): %s", (path, exc), None,
+            ))
+            disk_level = console_level
+
+    # The root logger must admit whatever the most verbose handler wants.
+    root.setLevel(min(console_level, disk_level))
 
     # uvicorn is noisy at INFO and duplicates request lines we already log.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     return root
+
+
+def log_file_path() -> Path | None:
+    """The active log file, or None when file logging is off."""
+    for handler in logging.getLogger(ROOT).handlers:
+        if isinstance(handler, logging.handlers.RotatingFileHandler):
+            return Path(handler.baseFilename)
+    return None
+
+
+class FileFormatter(logging.Formatter):
+    """Plain, dated, never coloured — the file outlives the terminal session."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            fmt="%(asctime)s %(levelname)-7s %(name)-22s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+
+
+def _resolve_level(value: str | int | None, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    return getattr(logging, str(value).upper(), default)
+
+
+def _resolve_log_path(explicit: str | os.PathLike | None) -> Path | None:
+    if explicit is not None:
+        return Path(explicit)
+    configured = os.environ.get("DOCKAGENT_LOG_FILE")
+    if configured is None:
+        return DEFAULT_LOG_FILE
+    if configured.strip().lower() in ("", "off", "none", "0", "false"):
+        return None
+    return Path(configured).expanduser()
 
 
 def get_logger(module: str) -> logging.Logger:

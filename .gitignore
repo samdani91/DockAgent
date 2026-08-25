@@ -16,3 +16,6 @@ dataset/
 
 # Derived embedding index (rebuilt on demand, tied to a model version)
 .embedding_cache.json
+
+# Rolling backend logs
+logs/
