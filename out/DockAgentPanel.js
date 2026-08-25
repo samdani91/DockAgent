@@ -25,6 +25,12 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DockAgentPanel = void 0;
 const vscode = __importStar(require("vscode"));
+/** Short module tags prefixed onto status labels during a coordinated run. */
+const STAGE_LABELS = {
+    generate: 'Module 1',
+    test: 'Module 2',
+    flakiness: 'Module 3'
+};
 class DockAgentPanel {
     get _runActive() {
         return this._runStartedAt > 0;
@@ -159,7 +165,10 @@ class DockAgentPanel {
             const response = await fetch(`${this._backendBaseUrl}/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text })
+                body: JSON.stringify({
+                    message: text,
+                    workspace_path: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+                })
             });
             if (!response.ok) {
                 throw new Error(`Backend request failed with status ${response.status}`);
@@ -189,27 +198,122 @@ class DockAgentPanel {
             return;
         }
         if (module === 'all') {
-            this._postStep('**Step 1 of 2** — Dockerfile');
-            const generated = await this._handleDockerfileGeneration();
-            if (generated) {
-                this._postStep('**Step 2 of 2** — Container Structure Tests');
-                await this._handleTestGeneration(threshold);
-            }
+            await this._handleCoordinatedRun(threshold);
             return;
         }
+        this._postPersistent('pipeline-error', 'error', `Unknown action: ${module}`);
+    }
+    /**
+     * Run all three modules under backend agent coordination.
+     *
+     * The chaining used to live here, which meant the extension decided the
+     * order and nothing could route a failure backwards. The agent owns that now,
+     * so this method only renders what it reports.
+     */
+    async _handleCoordinatedRun(threshold) {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            this._postPersistent('pipeline-error', 'error', 'No workspace folder is open. Open a project folder first.');
+            return;
+        }
+        const workspaceUri = workspaceFolders[0].uri;
+        this._postStep('Running the full pipeline: **Dockerfile → container tests → flakiness**. ' +
+            'Failing tests are routed back for repair, and a flakiness fix is re-verified. ' +
+            'Flakiness builds run without cache, so expect this to take a while.');
         try {
-            const response = await fetch(`${this._backendBaseUrl}/pipeline/${encodeURIComponent(module)}`, {
-                method: 'POST'
+            const response = await fetch(`${this._backendBaseUrl}/pipeline/run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workspace_path: workspaceUri.fsPath,
+                    threshold,
+                    apply: false
+                })
             });
             if (!response.ok) {
-                throw new Error(`Backend request failed with status ${response.status}`);
+                throw new Error(`Backend returned ${response.status}`);
             }
-            const data = (await response.json());
-            this._postPersistent('pipeline-success', 'success', data.detail ?? `${module} pipeline completed.`);
+            if (!response.body) {
+                throw new Error('No response body from backend.');
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) {
+                        continue;
+                    }
+                    let event;
+                    try {
+                        event = JSON.parse(line.slice(6));
+                    }
+                    catch {
+                        continue;
+                    }
+                    if (event.step === 'done') {
+                        await this._reportRun(event);
+                    }
+                    else if (event.step === 'error') {
+                        this._postPersistent('pipeline-error', 'error', event.message);
+                    }
+                    else if (event.stage === 'agent') {
+                        // The agent's routing decisions are the most interesting thing on
+                        // screen — they are what makes the feedback loop visible.
+                        this._postStep(`**Agent** — ${event.message}`);
+                    }
+                    else {
+                        this._handleProgressEvent(event.step, event.message, event.stage);
+                    }
+                }
+            }
         }
         catch (error) {
-            this._postPersistent('pipeline-error', 'error', this._formatError(error, `Unable to reach the backend pipeline endpoint for ${module}.`));
+            this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Full pipeline failed. Is the backend running?'));
         }
+    }
+    /** Closing summary plus a recap of what each module found. */
+    async _reportRun(event) {
+        const state = event.state;
+        const detail = state ? this._runDetail(state) : undefined;
+        const failed = state?.test && state.test.executed && state.test.failed > 0;
+        this._postPersistent(failed ? 'pipeline-error' : 'pipeline-success', failed ? 'error' : 'success', event.message, detail);
+        if (event.output_path) {
+            try {
+                const doc = await vscode.workspace.openTextDocument(event.output_path);
+                await vscode.window.showTextDocument(doc);
+            }
+            catch { /* the file may not exist if generation failed */ }
+        }
+    }
+    _runDetail(state) {
+        const lines = [];
+        if (state.generation) {
+            lines.push(`Dockerfile: ${state.generation.message}`);
+        }
+        if (state.test) {
+            lines.push(state.test.executed
+                ? `Tests: ${state.test.passed}/${state.test.total} passed`
+                : 'Tests: written but not executed');
+            for (const t of state.test.failing ?? []) {
+                lines.push(`  ✗ ${t.name}${t.errors?.[0] ? ` — ${t.errors[0]}` : ''}`);
+            }
+        }
+        if (state.flakiness) {
+            lines.push(`Flakiness: ${state.flakiness.verdict}`);
+            if (state.flakiness.repaired) {
+                lines.push(`  repair written to ${state.flakiness.repaired_path}`);
+            }
+        }
+        lines.push(`Feedback rounds used: ${state.feedback_rounds}`);
+        return lines.join('\n');
     }
     async _handleDockerfileGeneration() {
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -658,8 +762,11 @@ class DockAgentPanel {
         return clean.length > max ? clean.slice(0, max - 1) + '…' : clean;
     }
     /** Route one pipeline event to the status strip and, if notable, the transcript. */
-    _handleProgressEvent(step, message) {
+    _handleProgressEvent(step, message, stage) {
         const view = this._progressView(step, message);
+        if (stage && STAGE_LABELS[stage]) {
+            view.label = `${STAGE_LABELS[stage]} · ${view.label}`;
+        }
         this._postStatus(view.label, view.meta);
         if (view.milestone) {
             const text = view.meta ? `${view.label} — ${view.meta}` : view.label;
