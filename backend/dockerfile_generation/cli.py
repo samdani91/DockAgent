@@ -41,7 +41,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help="Model name. Defaults: gemini-2.5-pro (Gemini), gpt-4o (OpenAI).",
+        help="Model name. Defaults: gemini-flash-latest (Gemini), gpt-4o (OpenAI).",
     )
     parser.add_argument(
         "--timeout",
@@ -89,7 +89,7 @@ def main() -> None:
     context = build_context(doc_paths, repo_path)
 
     if args.provider == "gemini":
-        model = args.model or "gemini-2.5-pro"
+        model = args.model or "gemini-flash-latest"
         llm = GeminiClient(model=model)
     else:
         model = args.model or "gpt-4o"
