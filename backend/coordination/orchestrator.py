@@ -29,7 +29,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
-from .explain import summarise
+from .explain import explain, summarise
 from .routing import (
     DONE,
     MAX_FEEDBACK_ROUNDS,
@@ -95,10 +95,12 @@ def run_pipeline(
     request: PipelineRequest,
     progress: Progress | None = None,
     modules: Modules | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> PipelineState:
     """Drive the full pipeline and return the final state."""
     emit: Progress = progress or (lambda _s, _st, _m: None)
     mods = modules if modules is not None else Modules.default(request)
+    is_cancelled = cancelled or (lambda: False)
 
     workspace = Path(request.workspace_path)
     dockerfile_path = workspace / "Dockerfile"
@@ -110,6 +112,19 @@ def run_pipeline(
     def agent(message: str, step: str = "route") -> None:
         log.info("%s", message)
         emit("agent", step, message)
+
+    def stop_requested() -> bool:
+        """True when the caller has gone away.
+
+        Only checked between stages: a stage already running owns a docker
+        build, and killing that mid-flight would leave dangling state.
+        """
+        if is_cancelled():
+            log.warning("run cancelled by the caller")
+            state.record("agent", "routed", "Run cancelled by the caller.")
+            state.stage = "done"
+            return True
+        return False
 
     # ── 1. Dockerfile ────────────────────────────────────────────────────
     if dockerfile_path.is_file():
@@ -130,6 +145,8 @@ def run_pipeline(
 
     # ── 2/3. Tests, with Feedback A ──────────────────────────────────────
     while True:
+        if stop_requested():
+            return state
         state.stage = "test"
         state.test = mods.test(request, state, emit)
         state.record(
@@ -144,7 +161,7 @@ def run_pipeline(
             agent(decision.reason)
             break
 
-        stop, reason = should_stop(state)
+        stop, reason = should_stop(state, request.max_feedback_rounds)
         if stop:
             # Deliberately not fatal: the developer still wants the flakiness
             # verdict even when the tests cannot be made to pass.
@@ -175,7 +192,17 @@ def run_pipeline(
             )
             break
 
+    # Explain a test failure the agent has stopped trying to fix — that is the
+    # point where the developer has to take over, so it needs a "why".
+    if state.test is not None and not state.test.all_passed:
+        note = explain("test", state.test.message, state, mods.llm)
+        agent(note.explanation, step="explain")
+        if note.recommendation:
+            agent(note.recommendation, step="explain")
+
     # ── 4. Flakiness ─────────────────────────────────────────────────────
+    if stop_requested():
+        return state
     state.stage = "flakiness"
     state.flakiness = mods.flakiness(request, state, emit)
     state.record(
@@ -184,6 +211,13 @@ def run_pipeline(
         else "failure",
         state.flakiness.message,
     )
+
+    # Same for a build that could not be repaired.
+    if state.flakiness.needs_repair and not state.flakiness.repaired:
+        note = explain("flakiness", state.flakiness.message, state, mods.llm)
+        agent(note.explanation, step="explain")
+        if note.recommendation:
+            agent(note.recommendation, step="explain")
 
     # ── 5. Feedback B ────────────────────────────────────────────────────
     decision = route_flakiness(state.flakiness)

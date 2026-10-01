@@ -118,14 +118,19 @@ def build_patch_instruction(test_outcome: "TestOutcome") -> str:
     return "\n".join(lines) + "\n\n"
 
 
-def should_stop(state: "PipelineState") -> tuple[bool, str]:
+def should_stop(
+    state: "PipelineState", cap: int = MAX_FEEDBACK_ROUNDS
+) -> tuple[bool, str]:
     """Guard against looping on something the agent cannot fix.
+
+    *cap* comes from the request; without it the caller's configured limit was
+    reported to the user but never actually applied.
 
     Returns (stop, reason).
     """
-    if state.feedback_rounds >= MAX_FEEDBACK_ROUNDS:
+    if state.feedback_rounds >= cap:
         return True, (
-            f"Reached the feedback limit of {MAX_FEEDBACK_ROUNDS} round(s) without "
+            f"Reached the feedback limit of {cap} round(s) without "
             f"getting the container tests to pass."
         )
 
