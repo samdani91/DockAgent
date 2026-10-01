@@ -43,12 +43,23 @@ class ExpectationAcquirer:
         container = _create_container(client, image_name)
         container_id = container.id
         try:
+            # One line per command is detail, not news: a real image produces
+            # hundreds. They go to the log file at debug level, while the
+            # console gets periodic progress instead.
+            # Only worth reporting progress through when there is enough of it:
+            # below this the opening and closing lines already say everything.
+            step = total // 10 if total >= 20 else 0
+
             for i, command in enumerate(commands):
+                if step and i and i % step == 0:
+                    progress("S4", f"S4 — {i}/{total} commands checked…")
+
                 if command in _SKIP_VERSION_CHECK:
-                    progress("S4", f"S4 — Skipping '{command}' ({i + 1}/{total}) — known infinite-output command.")
+                    log.debug("skipping %s (%d/%d) — known infinite-output command",
+                              command, i + 1, total)
                     continue
 
-                progress("S4", f"S4 — Checking '{command}' version ({i + 1}/{total})…")
+                log.debug("checking %s version (%d/%d)", command, i + 1, total)
 
                 for option in _VERSION_OPTIONS:
                     result = _run_subprocess(container_id, [command, option])
