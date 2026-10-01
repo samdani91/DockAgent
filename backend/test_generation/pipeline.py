@@ -15,6 +15,15 @@ from .cst_writer import write as write_cst
 
 log = logging.getLogger("dockagent.test")
 
+#: A command test spawns a container exec and dominates execution time;
+#: a file existence test is nearly free. Measured against python:3.11-slim,
+#: where 284 command tests did not finish inside 530s.
+SECONDS_PER_COMMAND_TEST = 4.0
+SECONDS_PER_FILE_TEST = 0.05
+MAX_EXECUTE_TIMEOUT = 3600
+#: Above this, the suite is mostly base-image noise and worth flagging.
+LARGE_COMMAND_SUITE = 100
+
 
 def _image_name_for(workspace_path: str) -> str:
     digest = hashlib.md5(workspace_path.encode()).hexdigest()[:8]
@@ -68,7 +77,9 @@ class TestPipeline:
         stage_done("S2 score+filter")
 
         # S3 + S4 + write (progress forwarded into cst_writer)
-        write_cst(filtered, info, image_name, output_path, progress)
+        cmd_count, exist_count = write_cst(
+            filtered, info, image_name, output_path, progress
+        )
         stage_done("S3+S4 write")
 
         if not execute:
@@ -77,10 +88,30 @@ class TestPipeline:
         # S5 — run the spec we just wrote.
         # A runner failure must not discard the YAML, so it is reported rather
         # than raised: the spec is a valid deliverable on its own.
+        # The runner needs time proportional to the number of tests: each one
+        # is a container operation. A flat 300s guaranteed a timeout on any
+        # real image, where a threshold of 0 keeps thousands of targets.
+        needed = int(cmd_count * SECONDS_PER_COMMAND_TEST
+                     + exist_count * SECONDS_PER_FILE_TEST)
+        scaled_timeout = min(MAX_EXECUTE_TIMEOUT, max(execute_timeout, needed))
+        if scaled_timeout > execute_timeout:
+            progress(
+                "S5",
+                f"S5 — {cmd_count} command tests and {exist_count} file checks; "
+                f"allowing {scaled_timeout}s.",
+            )
+        if cmd_count > LARGE_COMMAND_SUITE:
+            progress(
+                "S5",
+                f"S5 — {cmd_count} command tests is a lot, and most will be "
+                f"base-image binaries rather than your application. A higher "
+                f"score threshold gives a faster, more focused suite.",
+            )
+
         progress("S5", "S5 — Running container structure tests…")
         try:
             test_run = execute_tests(
-                image_name, output_path, execute_timeout, progress
+                image_name, output_path, scaled_timeout, progress
             )
         except RuntimeError as exc:
             progress("S5", f"S5 — Could not run tests: {exc}")

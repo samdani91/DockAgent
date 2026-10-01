@@ -15,7 +15,7 @@ def write(
     image_name: str,
     output_path: str,
     progress: Callable[[str, str], None],
-) -> None:
+) -> tuple[int, int]:
     metadata: list[MetadataElement] = filtered_test_targets["metadata"]
     layers = filtered_test_targets["layers"]
 
@@ -68,6 +68,10 @@ def write(
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as fh:
         fh.write(output)
+
+    # The caller sizes the execution timeout from these: a command test costs a
+    # container exec, a file existence test is nearly free.
+    return cmd_count, exist_count
 
 
 # ---------------------------------------------------------------------------
