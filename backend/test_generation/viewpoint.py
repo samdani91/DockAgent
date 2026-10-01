@@ -37,10 +37,8 @@ class ViewpointDeterminer:
         try:
             for idx, layer in enumerate(layers):
                 if layer.files:
-                    progress(
-                        "S3",
-                        f"S3 — Checking layer {idx + 1}/{len(layers)}: {len(layer.files)} files…",
-                    )
+                    log.debug("checking layer %d/%d: %d files",
+                              idx + 1, len(layers), len(layer.files))
 
                 binary_files: list[File] = []
                 non_binary_files: list[File] = []

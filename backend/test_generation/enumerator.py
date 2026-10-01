@@ -1,5 +1,6 @@
 """S1: Enumerate test targets from Docker image layers and Dockerfile metadata."""
 
+import logging
 import io
 import json
 import os
@@ -13,6 +14,8 @@ import tempfile
 from typing import Optional
 
 from .data_structures import File, Layer, MetadataElement
+
+log = logging.getLogger("dockagent.test")
 
 _DIC_TYPES = ("envVars", "labels")
 _LIST_TYPES = ("exposedPorts", "volumes")
@@ -597,6 +600,11 @@ class Enumerator:
         progress=None,
     ) -> tuple[dict, dict]:
         def _p(msg: str) -> None:
+            """Intermediate steps go to the log; the caller reports the totals."""
+            log.debug("%s", msg)
+
+        def _p_slow(msg: str) -> None:
+            """Steps worth seeing live because they can take a while."""
             if progress:
                 progress("S1", msg)
 
@@ -609,7 +617,7 @@ class Enumerator:
         _p("S1 — Comparing Dockerfile vs image metadata…")
         metadata = self._set_metadata(dfi, insp)
 
-        _p("S1 — Saving image tarball (may take a moment for large images)…")
+        _p_slow("S1 — Saving image tarball (may take a moment for large images)…")
         layers = self._get_layers(image_name, dfi)
 
         _p("S1 — Propagating whiteout deletions across layers…")
