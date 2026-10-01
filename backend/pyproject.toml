@@ -23,3 +23,12 @@ include = ["dockerfile_generation*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Integration tests need Docker, an API key and several minutes. They are
+# excluded from a plain `pytest` run and selected with `-m integration`.
+addopts = "-m 'not integration'"
+markers = [
+    "integration: exercises real Docker, a real model and real projects",
+    "slow: takes minutes rather than seconds",
+    "needs_llm: requires a working provider API key",
+    "needs_network: clones from the internet",
+]
