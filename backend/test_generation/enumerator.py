@@ -307,7 +307,9 @@ def _normalize_path(name: str) -> str:
     """Convert tar member name to absolute POSIX path."""
     if name in (".", "./"):
         return "/"
-    p = name.lstrip(".")
+    # Only the leading "./" is a prefix; lstrip(".") also ate the dot of a
+    # dotfile, turning "./.bashrc" into "/bashrc".
+    p = name[2:] if name.startswith("./") else name
     if not p.startswith("/"):
         p = "/" + p
     return p
@@ -345,12 +347,14 @@ def _extract_layers_from_image(image_name: str) -> tuple[list[dict], list[dict]]
             per_layer_data: list[tuple[list[File], list[str]]] = []
             for lpath in layer_paths:
                 layer_data = outer.extractfile(lpath)
-                layer_bytes = layer_data.read()
                 files: list[File] = []
                 removed: list[str] = []
 
-                with tarfile.open(fileobj=io.BytesIO(layer_bytes), mode="r:*") as ltf:
-                    for member in ltf.getmembers():
+                # Streamed ("r|*") rather than read() into a BytesIO: a layer of
+                # a multi-GB image used to be held in memory in full, and
+                # getmembers() materialised the whole member list on top of it.
+                with tarfile.open(fileobj=layer_data, mode="r|*") as ltf:
+                    for member in ltf:
                         basename = posixpath.basename(member.name)
                         norm_path = _normalize_path(member.name)
 
@@ -714,13 +718,21 @@ class Enumerator:
         return layers
 
     def _set_removed_path(self, layers: list[Layer]) -> list[Layer]:
-        for i, layer in enumerate(layers):
+        """Mark files deleted by a later layer as whiteouts.
+
+        Walks the layers once, keeping the files seen so far, instead of
+        re-scanning every preceding layer for every removed path — that was
+        O(layers^2 x files) and dominated large images.
+        """
+        seen: list[File] = []          # every file from the layers before this one
+        for layer in layers:
             extra: list[File] = []
             for removed_path in layer.removed_paths:
-                for pre_layer in layers[:i]:
-                    for f in pre_layer.files:
-                        if f.path.startswith(removed_path + "/") or f.path == removed_path:
-                            extra.append(File(f.path, f.is_file, f.is_dir, "c---------"))
+                prefix = removed_path + "/"
+                for f in seen:
+                    if f.path == removed_path or f.path.startswith(prefix):
+                        extra.append(File(f.path, f.is_file, f.is_dir, "c---------"))
+            seen.extend(layer.files)
             layer.files += extra
         return layers
 

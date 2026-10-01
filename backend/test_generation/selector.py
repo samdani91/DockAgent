@@ -68,14 +68,16 @@ class Scorer:
         # De-duplicate: accumulate inst_points for same path seen in multiple layers
         seen: dict[str, File] = {}
         for layer in reversed(layers):
-            to_remove: list[File] = []
+            # Identity set, not a list: the old `x not in to_remove` was a
+            # linear scan per file, so de-duplication was quadratic.
+            to_remove: set[int] = set()
             for f in layer.files:
                 if f.path in seen:
                     seen[f.path].inst_points += f.inst_points
-                    to_remove.append(f)
+                    to_remove.add(id(f))
                 else:
                     seen[f.path] = f
-            layer.files = [x for x in layer.files if x not in to_remove]
+            layer.files = [x for x in layer.files if id(x) not in to_remove]
 
         return layers
 
