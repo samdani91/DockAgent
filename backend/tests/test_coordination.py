@@ -311,3 +311,78 @@ def test_agent_events_carry_the_agent_stage(workspace):
     agent_events = [m for s, _, m in events if s == "agent"]
     assert any("routing back" in m.lower() for m in agent_events)
     assert any("feedback round 1 of 2" in m.lower() for m in agent_events)
+
+
+# ---------------------------------------------------------------------------
+# Configured feedback cap (was displayed but never enforced)
+# ---------------------------------------------------------------------------
+
+def test_configured_cap_is_honoured_not_just_displayed(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    # Distinct failures each time so the signature guard does not fire first.
+    rec = _Recorder([_failing((f"t{i}",)) for i in range(8)])
+    state, _ = _run(workspace, rec, max_feedback_rounds=4)
+
+    assert state.feedback_rounds == 4          # not the module default of 2
+    assert rec.calls["flakiness"] == 1
+
+
+def test_cap_of_one_allows_a_single_round(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    rec = _Recorder([_failing(("a",)), _failing(("b",)), _failing(("c",))])
+    state, _ = _run(workspace, rec, max_feedback_rounds=1)
+
+    assert state.feedback_rounds == 1
+    assert rec.calls["patch"] == 1
+
+
+def test_cap_of_zero_routes_nothing_back(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    rec = _Recorder([_failing()])
+    state, _ = _run(workspace, rec, max_feedback_rounds=0)
+
+    assert state.feedback_rounds == 0
+    assert rec.calls["patch"] == 0
+    assert rec.calls["flakiness"] == 1         # still reports the verdict
+
+
+# ---------------------------------------------------------------------------
+# Cancellation
+# ---------------------------------------------------------------------------
+
+def test_cancellation_stops_before_the_next_stage(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    rec = _Recorder([_passing()])
+    request = PipelineRequest(workspace_path=str(workspace))
+
+    state = run_pipeline(request, None, rec.as_modules(), cancelled=lambda: True)
+
+    assert rec.calls["test"] == 0              # stopped at the first boundary
+    assert rec.calls["flakiness"] == 0
+    assert state.stage == "done"
+    assert any("cancelled" in r.message.lower() for r in state.history)
+
+
+def test_cancellation_after_tests_skips_flakiness(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    rec = _Recorder([_passing()])
+    calls = {"n": 0}
+
+    def cancelled():
+        calls["n"] += 1
+        return calls["n"] > 1                  # allow the first boundary only
+
+    state = run_pipeline(PipelineRequest(workspace_path=str(workspace)),
+                         None, rec.as_modules(), cancelled=cancelled)
+
+    assert rec.calls["test"] == 1
+    assert rec.calls["flakiness"] == 0
+
+
+def test_no_cancellation_runs_everything(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    rec = _Recorder([_passing()])
+    run_pipeline(PipelineRequest(workspace_path=str(workspace)),
+                 None, rec.as_modules(), cancelled=lambda: False)
+    assert rec.calls["test"] == 1
+    assert rec.calls["flakiness"] == 1
