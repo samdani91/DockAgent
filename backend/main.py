@@ -4,6 +4,7 @@ import os
 import queue as thread_queue
 import threading
 import traceback
+from collections import OrderedDict
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -16,7 +17,7 @@ from dockagent_logging import configure, get_logger
 configure()   # honours DOCKAGENT_LOG_LEVEL, defaults to INFO
 log = get_logger("api")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -24,8 +25,26 @@ from pydantic import BaseModel, Field
 app = FastAPI(title="DockAgent Backend", version="0.1.0")
 
 #: Last completed run per workspace, so /chat can answer from real results.
-#: Process-local and lost on restart — deliberately not persisted.
-_last_state: dict = {}
+#: Process-local and lost on restart — deliberately not persisted. Bounded so a
+#: long-lived server does not accumulate states for every workspace it ever saw.
+_last_state: "OrderedDict[str, object]" = OrderedDict()
+_MAX_REMEMBERED_RUNS = 10
+
+
+def _remember_run(workspace_path: str, state) -> None:
+    _last_state.pop(workspace_path, None)      # re-insert so it counts as newest
+    _last_state[workspace_path] = state
+    while len(_last_state) > _MAX_REMEMBERED_RUNS:
+        _last_state.popitem(last=False)
+
+
+def _recall_run(workspace_path: str | None):
+    """The named workspace's run, else the most recent one."""
+    if workspace_path and workspace_path in _last_state:
+        return _last_state[workspace_path]
+    if workspace_path:
+        return None                            # asked about a workspace we have not run
+    return next(reversed(_last_state.values())) if _last_state else None
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,13 +80,62 @@ def chat(request: ChatRequest) -> ChatResponse:
     from coordination.orchestrator import PipelineRequest
     from coordination.runners import make_llm
 
-    state = _last_state.get(request.workspace_path or "") if request.workspace_path \
-        else (next(iter(_last_state.values())) if _last_state else None)
+    state = _recall_run(request.workspace_path)
 
     llm = make_llm(PipelineRequest(workspace_path=request.workspace_path or "."))
     reply = answer_query(request.message, state, llm)
     return ChatResponse(reply=reply)
 
+
+
+# ---------------------------------------------------------------------------
+# Shared SSE plumbing
+# ---------------------------------------------------------------------------
+
+#: Emitted while a stage is working so the connection does not look idle.
+#: Node's undici — which the extension\'s fetch uses — aborts a response body
+#: after 300s without data, surfacing as "terminated". A long docker build or a
+#: large test suite easily exceeds that without producing an event.
+SSE_HEARTBEAT_SECONDS = 15
+
+
+async def _sse_stream(
+    event_queue: thread_queue.Queue,
+    http_request: Request | None = None,
+    cancel: threading.Event | None = None,
+) -> AsyncGenerator[str, None]:
+    """Drain *event_queue* to the client until the sentinel arrives.
+
+    If the client disconnects — the panel is closed, the window reloads — the
+    cancel event is set so the worker can stop between stages instead of
+    carrying on with builds nobody is waiting for.
+
+    A comment line is sent during quiet periods to keep the body alive; SSE
+    clients ignore lines that are not `data:`.
+    """
+    import asyncio
+    import time
+
+    last_sent = time.monotonic()
+
+    while True:
+        try:
+            event = event_queue.get_nowait()
+        except thread_queue.Empty:
+            if http_request is not None and await http_request.is_disconnected():
+                if cancel is not None:
+                    cancel.set()
+                log.warning("client disconnected; signalling the run to stop")
+                return
+            if time.monotonic() - last_sent >= SSE_HEARTBEAT_SECONDS:
+                last_sent = time.monotonic()
+                yield ": keepalive\n\n"
+            await asyncio.sleep(0.1)
+            continue
+        if event is None:
+            return
+        last_sent = time.monotonic()
+        yield f"data: {json.dumps(event)}\n\n"
 
 # ---------------------------------------------------------------------------
 # Test-generation pipeline (SSE)
@@ -82,12 +150,13 @@ class TestPipelineRequest(BaseModel):
 
 
 @app.post("/pipeline/test")
-async def run_test_generation(request: TestPipelineRequest) -> StreamingResponse:
+async def run_test_generation(request: TestPipelineRequest, http_request: Request) -> StreamingResponse:
     output_path = os.path.join(
         request.workspace_path, ".dockagent", "tests", "container-structure-test.yaml"
     )
 
     event_queue: thread_queue.Queue = thread_queue.Queue()
+    cancel = threading.Event()
 
     def _pipeline_thread() -> None:
         try:
@@ -148,19 +217,10 @@ async def run_test_generation(request: TestPipelineRequest) -> StreamingResponse
     thread = threading.Thread(target=_pipeline_thread, daemon=True)
     thread.start()
 
-    async def event_stream() -> AsyncGenerator[str, None]:
-        import asyncio
-        while True:
-            try:
-                event = event_queue.get_nowait()
-            except thread_queue.Empty:
-                await asyncio.sleep(0.1)
-                continue
-            if event is None:
-                break
-            yield f"data: {json.dumps(event)}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        _sse_stream(event_queue, http_request, cancel),
+        media_type="text/event-stream",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -206,8 +266,9 @@ def _find_docs(workspace: Path) -> list[str]:
 
 
 @app.post("/pipeline/generate")
-async def run_dockerfile_generation(request: GenerateRequest) -> StreamingResponse:
+async def run_dockerfile_generation(request: GenerateRequest, http_request: Request) -> StreamingResponse:
     event_queue: thread_queue.Queue = thread_queue.Queue()
+    cancel = threading.Event()
 
     def _pipeline_thread() -> None:
         try:
@@ -342,19 +403,10 @@ async def run_dockerfile_generation(request: GenerateRequest) -> StreamingRespon
     thread = threading.Thread(target=_pipeline_thread, daemon=True)
     thread.start()
 
-    async def event_stream() -> AsyncGenerator[str, None]:
-        import asyncio
-        while True:
-            try:
-                event = event_queue.get_nowait()
-            except thread_queue.Empty:
-                await asyncio.sleep(0.1)
-                continue
-            if event is None:
-                break
-            yield f"data: {json.dumps(event)}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        _sse_stream(event_queue, http_request, cancel),
+        media_type="text/event-stream",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -375,8 +427,9 @@ class FlakinessRequest(BaseModel):
 
 
 @app.post("/pipeline/flakiness")
-async def run_flakiness_repair(request: FlakinessRequest) -> StreamingResponse:
+async def run_flakiness_repair(request: FlakinessRequest, http_request: Request) -> StreamingResponse:
     event_queue: thread_queue.Queue = thread_queue.Queue()
+    cancel = threading.Event()
 
     def _pipeline_thread() -> None:
         try:
@@ -526,19 +579,10 @@ async def run_flakiness_repair(request: FlakinessRequest) -> StreamingResponse:
     thread = threading.Thread(target=_pipeline_thread, daemon=True)
     thread.start()
 
-    async def event_stream() -> AsyncGenerator[str, None]:
-        import asyncio
-        while True:
-            try:
-                event = event_queue.get_nowait()
-            except thread_queue.Empty:
-                await asyncio.sleep(0.1)
-                continue
-            if event is None:
-                break
-            yield f"data: {json.dumps(event)}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        _sse_stream(event_queue, http_request, cancel),
+        media_type="text/event-stream",
+    )
 
 
 
@@ -567,9 +611,10 @@ class RunRequest(BaseModel):
 
 
 @app.post("/pipeline/run")
-async def run_full_pipeline(request: RunRequest) -> StreamingResponse:
+async def run_full_pipeline(request: RunRequest, http_request: Request) -> StreamingResponse:
     """Run Modules 1-3 under agent coordination, closing the feedback loop."""
     event_queue: thread_queue.Queue = thread_queue.Queue()
+    cancel = threading.Event()
 
     def _pipeline_thread() -> None:
         try:
@@ -601,10 +646,11 @@ async def run_full_pipeline(request: RunRequest) -> StreamingResponse:
                     execute_timeout=request.execute_timeout,
                 ),
                 progress,
+                cancelled=cancel.is_set,
             )
 
             # Remembered so /chat can answer questions about this run.
-            _last_state[request.workspace_path] = state
+            _remember_run(request.workspace_path, state)
 
             closing = next(
                 (r.message for r in reversed(state.history)
@@ -632,16 +678,7 @@ async def run_full_pipeline(request: RunRequest) -> StreamingResponse:
     thread = threading.Thread(target=_pipeline_thread, daemon=True)
     thread.start()
 
-    async def event_stream() -> AsyncGenerator[str, None]:
-        import asyncio
-        while True:
-            try:
-                event = event_queue.get_nowait()
-            except thread_queue.Empty:
-                await asyncio.sleep(0.1)
-                continue
-            if event is None:
-                break
-            yield f"data: {json.dumps(event)}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        _sse_stream(event_queue, http_request, cancel),
+        media_type="text/event-stream",
+    )
