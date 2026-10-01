@@ -2,6 +2,7 @@
 
 import posixpath
 import re
+import logging
 import subprocess
 from typing import Callable, Optional
 
@@ -9,6 +10,8 @@ import docker
 import docker.errors
 
 from .viewpoint import _create_container, _stop_remove
+
+log = logging.getLogger("dockagent.test")
 
 
 _VERSION_OPTIONS = ("--version", "-version", "-V")
@@ -73,8 +76,11 @@ def _run_subprocess(container_id: str, cmd: list[str]) -> Optional[tuple]:
         )
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
+        log.debug("version probe timed out: %s", " ".join(cmd))
         return None
-    except Exception:
+    except OSError as exc:
+        # A failed probe is not a timeout; the caller logged it as one.
+        log.warning("version probe could not run (%s): %s", type(exc).__name__, exc)
         return None
 
 

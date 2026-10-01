@@ -86,7 +86,9 @@ def _split_run_value(command: str) -> list[str]:
 
     parts = _split_on_and_and(remainder)
     if len(parts) <= 1:
-        return ["RUN " + " ".join(options + [command.strip()])]
+        # `remainder`, not `command`: the options were sliced off the front of
+        # `command`, so reusing it here emitted each option twice.
+        return ["RUN " + " ".join(options + [remainder]).strip()]
 
     prefix = " ".join(options) + " " if options else ""
     result: list[str] = []

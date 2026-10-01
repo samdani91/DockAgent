@@ -14,11 +14,15 @@ class MetadataElement:
         def norm(v):
             if isinstance(v, list):
                 v = str(v).replace("'", "")
+            elif not isinstance(v, str):
+                # Ports and similar arrive as ints; comparing them used to
+                # raise AttributeError on .replace().
+                v = str(v)
             return v.replace(" ", "").replace('"', "")
         return norm(self.value) == norm(other.value)
 
     def equal_key(self, other):
-        return self.key.replace(" ", "") == other.key.replace(" ", "")
+        return str(self.key).replace(" ", "") == str(other.key).replace(" ", "")
 
 
 class File:
