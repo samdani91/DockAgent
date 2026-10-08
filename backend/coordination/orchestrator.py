@@ -65,7 +65,7 @@ class PipelineRequest:
     model: str = ""
     optimize: bool = False
     apply: bool = False                       # apply a flakiness repair in place
-    build_timeout: int = 900
+    build_timeout: int = 1800
     execute_timeout: int = 300
 
 

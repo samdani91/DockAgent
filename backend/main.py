@@ -234,7 +234,7 @@ class GenerateRequest(BaseModel):
     max_attempts: int = 6
     provider: str = "gemini"          # "gemini" | "openai"
     model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-flash-latest"))
-    build_timeout: int = 900
+    build_timeout: int = 1800
     optimize: bool = False      # DRAFT Phase B — multi-stage image optimization
 
 
@@ -424,7 +424,7 @@ class FlakinessRequest(BaseModel):
     apply: bool = False                  # overwrite the Dockerfile in place
     provider: str = "gemini"
     model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-flash-latest"))
-    build_timeout: int = 900
+    build_timeout: int = 1800
 
 
 @app.post("/pipeline/flakiness")
@@ -619,7 +619,7 @@ class RunRequest(BaseModel):
     model: str = Field(default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-flash-latest"))
     optimize: bool = False
     apply: bool = False                 # apply a flakiness repair in place
-    build_timeout: int = 900
+    build_timeout: int = 1800
     execute_timeout: int = 300
 
 

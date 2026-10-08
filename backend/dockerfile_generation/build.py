@@ -34,7 +34,7 @@ class RealDockerBuilder:
     accidentally appear inside the build context.
     """
 
-    def __init__(self, timeout: int = 900, no_cache: bool = False) -> None:
+    def __init__(self, timeout: int = 1800, no_cache: bool = False) -> None:
         self._timeout = timeout
         self._no_cache = no_cache
 
