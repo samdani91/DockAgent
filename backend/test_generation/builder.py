@@ -6,8 +6,22 @@ import shlex
 import subprocess
 import tempfile
 
+#: How long a single S0 build may take.
+#:
+#: This was 300s, an unexamined default from the first version of the pipeline
+#: that no project hit until a real one did: GloVe-experiments downloads an
+#: 822 MB corpus and compiles scipy from source on Python 3.7, which needs
+#: 15-25 minutes. Unlike Module 1, S0 gets one build and the module dies if it
+#: fails, so the ceiling is set generously rather than tightly.
+BUILD_TIMEOUT_SECONDS = 1800
 
-def build_image(dockerfile_path: str, workspace_path: str, image_name: str) -> None:
+
+def build_image(
+    dockerfile_path: str,
+    workspace_path: str,
+    image_name: str,
+    timeout: int = BUILD_TIMEOUT_SECONDS,
+) -> None:
     with open(dockerfile_path, "r") as f:
         original = f.read()
 
@@ -24,12 +38,25 @@ def build_image(dockerfile_path: str, workspace_path: str, image_name: str) -> N
         tmp_path = tf.name
 
     try:
-        result = subprocess.run(
-            ["docker", "build", "-f", tmp_path, "-t", image_name, "."],
-            cwd=workspace_path,
-            capture_output=True,
-            timeout=300,
-        )
+        try:
+            result = subprocess.run(
+                ["docker", "build", "-f", tmp_path, "-t", image_name, "."],
+                cwd=workspace_path,
+                capture_output=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            # Raised as a RuntimeError like every other build failure, so the
+            # caller reports it rather than leaking a subprocess traceback.
+            spent = (
+                f"{timeout // 60} minutes" if timeout >= 60
+                else f"{timeout} seconds"
+            )
+            raise RuntimeError(
+                f"docker build timed out after {spent}. "
+                f"This project may need longer than the current limit allows."
+            ) from None
+
         if result.returncode != 0:
             raise RuntimeError(
                 f"docker build failed (exit {result.returncode}):\n"
