@@ -473,22 +473,34 @@ async def run_flakiness_repair(request: FlakinessRequest, http_request: Request)
                 iterations=request.iterations, progress=progress,
             )
 
+            detection: dict = {
+                "verdict": report.verdict,
+                "iterations": report.iterations,
+                "successes": report.successes,
+                "failures": report.failures,
+                "is_flaky": report.is_flaky,
+                "failing_instruction": (
+                    report.primary_error.dockerfile_error_line
+                    if report.primary_error else ""
+                ),
+            }
+
+            # The verdict is emitted here, not folded into the closing event:
+            # retrieval and repair stream their own lines afterwards, and a
+            # verdict delivered at the end reads as though the builds failed
+            # after the repair was already validated.
+            event_queue.put({
+                "step": "verdict",
+                "message": report.summary(),
+                "detection": detection,
+            })
+
             done: dict = {
                 "step": "done",
                 "output_path": str(dockerfile_path),
                 "verdict": report.verdict,
                 "message": report.summary(),
-                "detection": {
-                    "verdict": report.verdict,
-                    "iterations": report.iterations,
-                    "successes": report.successes,
-                    "failures": report.failures,
-                    "is_flaky": report.is_flaky,
-                    "failing_instruction": (
-                        report.primary_error.dockerfile_error_line
-                        if report.primary_error else ""
-                    ),
-                },
+                "detection": detection,
                 "repair": None,
             }
 

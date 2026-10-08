@@ -568,6 +568,11 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
 
           if (event.step === 'done') {
             await this._reportFlakiness(event, dockerfileUri);
+          } else if (event.step === 'verdict') {
+            // Rendered here rather than on `done`: retrieval and repair stream
+            // their own lines after this, so a verdict held back to the end
+            // reads as if the builds failed after the repair was validated.
+            this._postDetectionVerdict(event.detection, event.message);
           } else if (event.step === 'error') {
             this._postPersistent('pipeline-error', 'error', event.message);
           } else {
@@ -581,26 +586,41 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     }
   }
 
-  /** Render the flakiness verdict, and open a diff when a repair was produced. */
-  private async _reportFlakiness(event: FlakinessDoneEvent, dockerfileUri: vscode.Uri) {
-    const detection = event.detection;
-    const repair = event.repair;
-
-    if (detection) {
-      const detail = detection.failing_instruction
-        ? `Failing instruction:\n    ${detection.failing_instruction}`
-        : undefined;
-
-      if (detection.verdict === 'stable') {
-        this._postPersistent('pipeline-success', 'success', event.message);
-      } else {
-        const headline = detection.is_flaky
-          ? `Flaky: ${detection.successes} of ${detection.iterations} builds passed with identical input`
-          : `Failed all ${detection.iterations} builds`;
-        this._postStep(headline, detail);
-      }
+  /** Report the detection verdict at the moment detection finishes. */
+  private _postDetectionVerdict(
+    detection: FlakinessDoneEvent['detection'],
+    message: string
+  ) {
+    if (!detection) {
+      this._postStep(message);
+      return;
     }
 
+    if (detection.verdict === 'stable') {
+      this._postPersistent('pipeline-success', 'success',
+        `No flakiness detected across ${detection.iterations} builds`, message);
+      return;
+    }
+
+    const headline = detection.is_flaky
+      ? `Flaky \u2014 ${detection.successes} of ${detection.iterations} builds passed with identical input`
+      : `Not reproducible \u2014 all ${detection.iterations} builds failed`;
+
+    const detail = [
+      message,
+      detection.failing_instruction
+        ? `\nFailing instruction:\n    ${detection.failing_instruction}`
+        : ''
+    ].filter(Boolean).join('\n');
+
+    this._postStep(headline, detail);
+  }
+
+  /** Render the flakiness repair outcome, and open a diff when one was produced. */
+  private async _reportFlakiness(event: FlakinessDoneEvent, dockerfileUri: vscode.Uri) {
+    const repair = event.repair;
+
+    // The verdict was already reported from the `verdict` event, in sequence.
     if (!repair) { return; }
 
     if (repair.success && repair.repaired_path) {
@@ -822,12 +842,24 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       };
     }
 
+    if (step === 'verdict') {
+      if (/^Flaky:/i.test(message)) {
+        return { label: 'Flaky build detected', detail: message, milestone: true };
+      }
+      if (/^Failed all/i.test(message)) {
+        return { label: 'Not reproducible \u2014 all builds failed', detail: message, milestone: true };
+      }
+      return { label: 'No flakiness detected', detail: message, milestone: true };
+    }
+
     if (/Unable to resolve/i.test(message)) {
       return { label: 'Could not repair — the same error kept recurring', milestone: true };
     }
 
     if (/Repair validated across/i.test(message)) {
-      return { label: 'Repair validated', milestone: true };
+      // Not a milestone: the closing event reports this with the attempt
+      // count a moment later, and two bubbles in a row read as a stutter.
+      return { label: 'Repair validated' };
     }
 
     if (/still fails/i.test(message)) {

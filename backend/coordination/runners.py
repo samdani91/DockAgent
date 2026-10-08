@@ -279,6 +279,10 @@ def run_flakiness(request, state: PipelineState, emit) -> FlakinessOutcome:
         iterations=request.iterations, progress=progress,
     )
 
+    # Report the verdict before retrieval starts, so the chat reads in the
+    # order things happened rather than ending on "all builds failed".
+    progress("verdict", report.summary())
+
     outcome = FlakinessOutcome(
         verdict=report.verdict,
         is_flaky=report.is_flaky,
