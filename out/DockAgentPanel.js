@@ -31,6 +31,31 @@ const STAGE_LABELS = {
     test: 'Module 2',
     flakiness: 'Module 3'
 };
+/**
+ * Serves the pre-repair Dockerfile from memory.
+ *
+ * A repair now overwrites the Dockerfile in place, so there is no second file
+ * on disk to diff against. The original text is held here instead, which keeps
+ * the review step without leaving a `.repaired` artefact in the project.
+ */
+const ORIGINAL_SCHEME = 'dockagent-original';
+class OriginalDockerfileProvider {
+    constructor() {
+        this._onDidChange = new vscode.EventEmitter();
+        this.onDidChange = this._onDidChange.event;
+        this._snapshots = new Map();
+    }
+    provideTextDocumentContent(uri) {
+        return this._snapshots.get(uri.path) ?? '';
+    }
+    /** Store *text* and return the URI that serves it. */
+    snapshot(label, text) {
+        this._snapshots.set(label, text);
+        const uri = vscode.Uri.from({ scheme: ORIGINAL_SCHEME, path: label });
+        this._onDidChange.fire(uri);
+        return uri;
+    }
+}
 class DockAgentPanel {
     get _runActive() {
         return this._runStartedAt > 0;
@@ -46,9 +71,11 @@ class DockAgentPanel {
         this._runStartedAt = 0;
         this._runLabel = 'Working';
         this._runMeta = '';
+        this._originals = new OriginalDockerfileProvider();
         DockAgentPanel.currentPanel = this;
         // Restore history saved in previous session
         this._chatHistory = _context.workspaceState.get('dockagent.chatHistory', []);
+        _context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(ORIGINAL_SCHEME, this._originals));
     }
     resolveWebviewView(webviewView, _context, _token) {
         this._view = webviewView;
@@ -227,7 +254,10 @@ class DockAgentPanel {
                 body: JSON.stringify({
                     workspace_path: workspaceUri.fsPath,
                     threshold,
-                    apply: false
+                    // Apply a flakiness repair in place. This is also what makes
+                    // Feedback B reachable: the agent only re-verifies the container
+                    // tests when the Dockerfile it tested has actually changed.
+                    apply: true
                 })
             });
             if (!response.ok) {
@@ -395,6 +425,15 @@ class DockAgentPanel {
             this._postPersistent('pipeline-error', 'error', 'No Dockerfile found in the workspace root. Generate one first.');
             return;
         }
+        // Captured before the run: the repair overwrites this file, and the diff
+        // is shown against this text rather than against a file left on disk.
+        let originalDockerfile = '';
+        try {
+            originalDockerfile = Buffer.from(await vscode.workspace.fs.readFile(dockerfileUri)).toString('utf8');
+        }
+        catch {
+            originalDockerfile = '';
+        }
         // Flakiness only shows up without the build cache, so every build is a
         // cold one. Say so before the user is left staring at a slow run.
         this._postStep('Checking for flakiness. Builds run **without cache**, so this is slow — ' +
@@ -407,7 +446,8 @@ class DockAgentPanel {
                     workspace_path: workspaceUri.fsPath,
                     dockerfile_path: dockerfileUri.fsPath,
                     repair: true,
-                    apply: false // write alongside; the user reviews a diff
+                    apply: true // overwrite the Dockerfile; the diff is shown
+                    // against the in-memory original
                 })
             });
             if (!response.ok) {
@@ -439,7 +479,13 @@ class DockAgentPanel {
                         continue;
                     }
                     if (event.step === 'done') {
-                        await this._reportFlakiness(event, dockerfileUri);
+                        await this._reportFlakiness(event, dockerfileUri, originalDockerfile);
+                    }
+                    else if (event.step === 'verdict') {
+                        // Rendered here rather than on `done`: retrieval and repair stream
+                        // their own lines after this, so a verdict held back to the end
+                        // reads as if the builds failed after the repair was validated.
+                        this._postDetectionVerdict(event.detection, event.message);
                     }
                     else if (event.step === 'error') {
                         this._postPersistent('pipeline-error', 'error', event.message);
@@ -454,40 +500,51 @@ class DockAgentPanel {
             this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Flakiness check failed. Is the backend running?'));
         }
     }
-    /** Render the flakiness verdict, and open a diff when a repair was produced. */
-    async _reportFlakiness(event, dockerfileUri) {
-        const detection = event.detection;
-        const repair = event.repair;
-        if (detection) {
-            const detail = detection.failing_instruction
-                ? `Failing instruction:\n    ${detection.failing_instruction}`
-                : undefined;
-            if (detection.verdict === 'stable') {
-                this._postPersistent('pipeline-success', 'success', event.message);
-            }
-            else {
-                const headline = detection.is_flaky
-                    ? `Flaky: ${detection.successes} of ${detection.iterations} builds passed with identical input`
-                    : `Failed all ${detection.iterations} builds`;
-                this._postStep(headline, detail);
-            }
+    /** Report the detection verdict at the moment detection finishes. */
+    _postDetectionVerdict(detection, message) {
+        if (!detection) {
+            this._postStep(message);
+            return;
         }
+        if (detection.verdict === 'stable') {
+            this._postPersistent('pipeline-success', 'success', `No flakiness detected across ${detection.iterations} builds`, message);
+            return;
+        }
+        const headline = detection.is_flaky
+            ? `Flaky — ${detection.successes} of ${detection.iterations} builds passed with identical input`
+            : `Not reproducible — all ${detection.iterations} builds failed`;
+        const detail = [
+            message,
+            detection.failing_instruction
+                ? `\nFailing instruction:\n    ${detection.failing_instruction}`
+                : ''
+        ].filter(Boolean).join('\n');
+        this._postStep(headline, detail);
+    }
+    /** Render the flakiness repair outcome, and show what changed. */
+    async _reportFlakiness(event, dockerfileUri, originalDockerfile = '') {
+        const repair = event.repair;
+        // The verdict was already reported from the `verdict` event, in sequence.
         if (!repair) {
             return;
         }
         if (repair.success && repair.repaired_path) {
-            const summary = `${repair.message} (${repair.attempts} attempt${repair.attempts === 1 ? '' : 's'})` +
-                (repair.applied ? '' : '\n\nReview the diff and apply it if you agree.');
+            const attempts = `${repair.attempts} attempt${repair.attempts === 1 ? '' : 's'}`;
+            const summary = repair.applied
+                ? `${repair.message} (${attempts})\n\nYour Dockerfile has been updated. ` +
+                    `The diff shows what changed — undo it with Git if you disagree.`
+                : `${repair.message} (${attempts})\n\nReview the diff and apply it if you agree.`;
             this._postPersistent('pipeline-success', 'success', summary, repair.demonstrations?.length
                 ? `Guided by similar repairs:\n${repair.demonstrations.map(d => `    ${d}`).join('\n')}`
                 : undefined);
-            const repairedUri = vscode.Uri.file(repair.repaired_path);
             if (repair.applied) {
-                const doc = await vscode.workspace.openTextDocument(repairedUri);
-                await vscode.window.showTextDocument(doc);
+                // Diff the snapshot taken before the run against the file as it is
+                // now, so the change is reviewable even though it was written in place.
+                const beforeUri = this._originals.snapshot('/Dockerfile (before repair)', originalDockerfile);
+                await vscode.commands.executeCommand('vscode.diff', beforeUri, dockerfileUri, 'Dockerfile — before ↔ after repair');
             }
             else {
-                await vscode.commands.executeCommand('vscode.diff', dockerfileUri, repairedUri, 'Dockerfile ↔ Proposed repair');
+                await vscode.commands.executeCommand('vscode.diff', dockerfileUri, vscode.Uri.file(repair.repaired_path), 'Dockerfile ↔ Proposed repair');
             }
         }
         else {
@@ -565,6 +622,9 @@ class DockAgentPanel {
                         // Execution problems are non-fatal — the spec is still usable.
                         if (event.warning) {
                             this._postStep(event.warning);
+                        }
+                        if (event.results_path) {
+                            this._postStep(`Results saved to ${event.results_path}`);
                         }
                         if (outputPath) {
                             const doc = await vscode.workspace.openTextDocument(outputPath);
@@ -664,11 +724,22 @@ class DockAgentPanel {
                 milestone: true
             };
         }
+        if (step === 'verdict') {
+            if (/^Flaky:/i.test(message)) {
+                return { label: 'Flaky build detected', detail: message, milestone: true };
+            }
+            if (/^Failed all/i.test(message)) {
+                return { label: 'Not reproducible — all builds failed', detail: message, milestone: true };
+            }
+            return { label: 'No flakiness detected', detail: message, milestone: true };
+        }
         if (/Unable to resolve/i.test(message)) {
             return { label: 'Could not repair — the same error kept recurring', milestone: true };
         }
         if (/Repair validated across/i.test(message)) {
-            return { label: 'Repair validated', milestone: true };
+            // Not a milestone: the closing event reports this with the attempt
+            // count a moment later, and two bubbles in a row read as a stutter.
+            return { label: 'Repair validated' };
         }
         if (/still fails/i.test(message)) {
             return { label: 'That repair still fails — trying again' };
