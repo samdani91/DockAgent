@@ -10,6 +10,7 @@ from .builder import build_image
 from .data_structures import PipelineResult
 from .enumerator import Enumerator
 from .executor import execute_tests
+from .report import write_report
 from .selector import Scorer, Filter
 from .cst_writer import write as write_cst
 
@@ -109,16 +110,41 @@ class TestPipeline:
             )
 
         progress("S5", "S5 — Running container structure tests…")
+        results_dir = os.path.dirname(output_path)
+        run_started = time.monotonic()
         try:
             test_run = execute_tests(
                 image_name, output_path, scaled_timeout, progress
             )
         except RuntimeError as exc:
             progress("S5", f"S5 — Could not run tests: {exc}")
+            # A runner failure is still a result worth recording.
+            results_path = write_report(
+                output_dir=results_dir,
+                image_name=image_name,
+                spec_path=output_path,
+                execution_error=str(exc),
+                duration_seconds=time.monotonic() - run_started,
+            )
+            log.info("results written to %s", results_path)
             return PipelineResult(
                 output_path=output_path,
                 execution_error=str(exc),
+                results_path=results_path,
             )
 
         progress("S5", f"S5 — {test_run.passed}/{test_run.total} tests passed.")
-        return PipelineResult(output_path=output_path, test_run=test_run)
+        results_path = write_report(
+            output_dir=results_dir,
+            image_name=image_name,
+            spec_path=output_path,
+            test_run=test_run,
+            duration_seconds=time.monotonic() - run_started,
+        )
+        log.info("results written to %s", results_path)
+        progress("S5", f"S5 — Results saved to {os.path.basename(results_path)}.")
+        return PipelineResult(
+            output_path=output_path,
+            test_run=test_run,
+            results_path=results_path,
+        )

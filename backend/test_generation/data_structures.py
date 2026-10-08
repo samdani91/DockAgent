@@ -59,6 +59,8 @@ class Layer:
 
 @dataclass
 class TestCaseResult:
+    __test__ = False
+
     name: str
     passed: bool
     errors: list[str] = field(default_factory=list)   # empty when passed
@@ -66,6 +68,8 @@ class TestCaseResult:
 
 @dataclass
 class TestRunResult:
+    __test__ = False
+
     total: int
     passed: int
     failed: int
@@ -83,3 +87,5 @@ class PipelineResult:
     output_path: str
     test_run: TestRunResult | None = None
     execution_error: str | None = None
+    #: Where the JSON record of this run was written, when S5 ran at all.
+    results_path: str | None = None

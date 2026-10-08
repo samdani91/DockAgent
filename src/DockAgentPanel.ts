@@ -52,6 +52,7 @@ interface TestDoneEvent {
   step: string;
   message: string;
   output_path?: string;
+  results_path?: string | null;    // JSON record of this run, kept as evidence
   warning?: string;                // set when the spec was written but not run
   results?: {
     total: number;
@@ -708,6 +709,10 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
             // Execution problems are non-fatal — the spec is still usable.
             if (event.warning) {
               this._postStep(event.warning);
+            }
+
+            if (event.results_path) {
+              this._postStep(`Results saved to ${event.results_path}`);
             }
 
             if (outputPath) {

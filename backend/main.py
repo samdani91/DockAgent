@@ -181,6 +181,7 @@ async def run_test_generation(request: TestPipelineRequest, http_request: Reques
             done: dict = {
                 "step": "done",
                 "output_path": result.output_path,
+                "results_path": result.results_path,
                 "results": None,
             }
             if result.test_run is not None:
