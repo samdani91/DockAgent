@@ -100,6 +100,33 @@ interface RunEvent {
   state?: RunState;
 }
 
+/**
+ * Serves the pre-repair Dockerfile from memory.
+ *
+ * A repair now overwrites the Dockerfile in place, so there is no second file
+ * on disk to diff against. The original text is held here instead, which keeps
+ * the review step without leaving a `.repaired` artefact in the project.
+ */
+const ORIGINAL_SCHEME = 'dockagent-original';
+
+class OriginalDockerfileProvider implements vscode.TextDocumentContentProvider {
+  private readonly _onDidChange = new vscode.EventEmitter<vscode.Uri>();
+  readonly onDidChange = this._onDidChange.event;
+  private _snapshots = new Map<string, string>();
+
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    return this._snapshots.get(uri.path) ?? '';
+  }
+
+  /** Store *text* and return the URI that serves it. */
+  snapshot(label: string, text: string): vscode.Uri {
+    this._snapshots.set(label, text);
+    const uri = vscode.Uri.from({ scheme: ORIGINAL_SCHEME, path: label });
+    this._onDidChange.fire(uri);
+    return uri;
+  }
+}
+
 export class DockAgentPanel implements vscode.WebviewViewProvider {
 
   public static currentPanel: DockAgentPanel | undefined;
@@ -119,10 +146,17 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     return this._runStartedAt > 0;
   }
 
+  private readonly _originals = new OriginalDockerfileProvider();
+
   constructor(private readonly _context: vscode.ExtensionContext) {
     DockAgentPanel.currentPanel = this;
     // Restore history saved in previous session
     this._chatHistory = _context.workspaceState.get<ChatEntry[]>('dockagent.chatHistory', []);
+    _context.subscriptions.push(
+      vscode.workspace.registerTextDocumentContentProvider(
+        ORIGINAL_SCHEME, this._originals
+      )
+    );
   }
 
   public resolveWebviewView(
@@ -345,7 +379,10 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
         body: JSON.stringify({
           workspace_path: workspaceUri.fsPath,
           threshold,
-          apply: false
+          // Apply a flakiness repair in place. This is also what makes
+          // Feedback B reachable: the agent only re-verifies the container
+          // tests when the Dockerfile it tested has actually changed.
+          apply: true
         })
       });
 
@@ -525,6 +562,17 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       return;
     }
 
+    // Captured before the run: the repair overwrites this file, and the diff
+    // is shown against this text rather than against a file left on disk.
+    let originalDockerfile = '';
+    try {
+      originalDockerfile = Buffer.from(
+        await vscode.workspace.fs.readFile(dockerfileUri)
+      ).toString('utf8');
+    } catch {
+      originalDockerfile = '';
+    }
+
     // Flakiness only shows up without the build cache, so every build is a
     // cold one. Say so before the user is left staring at a slow run.
     this._postStep(
@@ -540,7 +588,8 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
           workspace_path: workspaceUri.fsPath,
           dockerfile_path: dockerfileUri.fsPath,
           repair: true,
-          apply: false          // write alongside; the user reviews a diff
+          apply: true           // overwrite the Dockerfile; the diff is shown
+                                // against the in-memory original
         })
       });
 
@@ -567,7 +616,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
           } catch { continue; }
 
           if (event.step === 'done') {
-            await this._reportFlakiness(event, dockerfileUri);
+            await this._reportFlakiness(event, dockerfileUri, originalDockerfile);
           } else if (event.step === 'verdict') {
             // Rendered here rather than on `done`: retrieval and repair stream
             // their own lines after this, so a verdict held back to the end
@@ -603,8 +652,8 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     }
 
     const headline = detection.is_flaky
-      ? `Flaky \u2014 ${detection.successes} of ${detection.iterations} builds passed with identical input`
-      : `Not reproducible \u2014 all ${detection.iterations} builds failed`;
+      ? `Flaky — ${detection.successes} of ${detection.iterations} builds passed with identical input`
+      : `Not reproducible — all ${detection.iterations} builds failed`;
 
     const detail = [
       message,
@@ -616,29 +665,41 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     this._postStep(headline, detail);
   }
 
-  /** Render the flakiness repair outcome, and open a diff when one was produced. */
-  private async _reportFlakiness(event: FlakinessDoneEvent, dockerfileUri: vscode.Uri) {
+  /** Render the flakiness repair outcome, and show what changed. */
+  private async _reportFlakiness(
+    event: FlakinessDoneEvent,
+    dockerfileUri: vscode.Uri,
+    originalDockerfile = ''
+  ) {
     const repair = event.repair;
 
     // The verdict was already reported from the `verdict` event, in sequence.
     if (!repair) { return; }
 
     if (repair.success && repair.repaired_path) {
-      const summary =
-        `${repair.message} (${repair.attempts} attempt${repair.attempts === 1 ? '' : 's'})` +
-        (repair.applied ? '' : '\n\nReview the diff and apply it if you agree.');
+      const attempts = `${repair.attempts} attempt${repair.attempts === 1 ? '' : 's'}`;
+      const summary = repair.applied
+        ? `${repair.message} (${attempts})\n\nYour Dockerfile has been updated. ` +
+          `The diff shows what changed — undo it with Git if you disagree.`
+        : `${repair.message} (${attempts})\n\nReview the diff and apply it if you agree.`;
       this._postPersistent('pipeline-success', 'success', summary,
         repair.demonstrations?.length
           ? `Guided by similar repairs:\n${repair.demonstrations.map(d => `    ${d}`).join('\n')}`
           : undefined);
 
-      const repairedUri = vscode.Uri.file(repair.repaired_path);
       if (repair.applied) {
-        const doc = await vscode.workspace.openTextDocument(repairedUri);
-        await vscode.window.showTextDocument(doc);
+        // Diff the snapshot taken before the run against the file as it is
+        // now, so the change is reviewable even though it was written in place.
+        const beforeUri = this._originals.snapshot(
+          '/Dockerfile (before repair)', originalDockerfile
+        );
+        await vscode.commands.executeCommand(
+          'vscode.diff', beforeUri, dockerfileUri,
+          'Dockerfile — before ↔ after repair'
+        );
       } else {
         await vscode.commands.executeCommand(
-          'vscode.diff', dockerfileUri, repairedUri,
+          'vscode.diff', dockerfileUri, vscode.Uri.file(repair.repaired_path),
           'Dockerfile ↔ Proposed repair'
         );
       }
@@ -847,7 +908,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
         return { label: 'Flaky build detected', detail: message, milestone: true };
       }
       if (/^Failed all/i.test(message)) {
-        return { label: 'Not reproducible \u2014 all builds failed', detail: message, milestone: true };
+        return { label: 'Not reproducible — all builds failed', detail: message, milestone: true };
       }
       return { label: 'No flakiness detected', detail: message, milestone: true };
     }
