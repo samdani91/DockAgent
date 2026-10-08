@@ -26,6 +26,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DockAgentPanel = void 0;
 const vscode = __importStar(require("vscode"));
 /** Short module tags prefixed onto status labels during a coordinated run. */
+/** Raw error output beyond this goes untransmitted; the detail panel scrolls,
+ *  but a pathological log should not bloat every webview message. */
+const MAX_ERROR_DETAIL = 12000;
 const STAGE_LABELS = {
     generate: 'Module 1',
     test: 'Module 2',
@@ -292,7 +295,7 @@ class DockAgentPanel {
                         await this._reportRun(event);
                     }
                     else if (event.step === 'error') {
-                        this._postPersistent('pipeline-error', 'error', event.message);
+                        this._postPipelineError(event.message);
                     }
                     else if (event.stage === 'agent') {
                         // The agent's routing decisions are the most interesting thing on
@@ -396,7 +399,7 @@ class DockAgentPanel {
                         }
                     }
                     else if (event.step === 'error') {
-                        this._postPersistent('pipeline-error', 'error', event.message);
+                        this._postPipelineError(event.message);
                     }
                     else {
                         this._handleProgressEvent(event.step, event.message);
@@ -488,7 +491,7 @@ class DockAgentPanel {
                         this._postDetectionVerdict(event.detection, event.message);
                     }
                     else if (event.step === 'error') {
-                        this._postPersistent('pipeline-error', 'error', event.message);
+                        this._postPipelineError(event.message);
                     }
                     else {
                         this._handleProgressEvent(event.step, event.message);
@@ -632,7 +635,7 @@ class DockAgentPanel {
                         }
                     }
                     else if (event.step === 'error') {
-                        this._postPersistent('pipeline-error', 'error', event.message);
+                        this._postPipelineError(event.message);
                     }
                     else {
                         this._handleProgressEvent(event.step, event.message);
@@ -718,9 +721,20 @@ class DockAgentPanel {
         }
         const retrieved = message.match(/Retrieved (\d+) similar repairs?:\s*(.+)/i);
         if (retrieved) {
+            // The labels repeat often — three hits on one fault type is the common
+            // case — so joining them truncated to "Fault, Repository Depr…" said
+            // less than a count does. The breakdown goes in the detail panel.
+            const counts = new Map();
+            for (const label of retrieved[2].split(',').map(l => l.trim()).filter(Boolean)) {
+                counts.set(label, (counts.get(label) ?? 0) + 1);
+            }
+            const kinds = [...counts.entries()];
             return {
                 label: `Found ${retrieved[1]} similar repairs`,
-                meta: this._truncate(retrieved[2], 46),
+                meta: kinds.length === 1
+                    ? this._truncate(kinds[0][0], 46)
+                    : `${kinds.length} fault types`,
+                detail: kinds.map(([name, n]) => (n > 1 ? `${name} \u00d7${n}` : name)).join('\n'),
                 milestone: true
             };
         }
@@ -786,6 +800,100 @@ class DockAgentPanel {
         return { label: this._truncate(message, 70), detail: message };
     }
     /** Compress a raw build error into a few words. */
+    /**
+     * Report a backend failure as a short headline with the raw output collapsed.
+     *
+     * A failed build arrives as the whole BuildKit log plus a Python traceback.
+     * Dumping eighty lines into the panel buried the one line that mattered, so
+     * the summary is derived here and the raw text goes in the detail panel,
+     * which is already scrollable.
+     */
+    _postPipelineError(raw) {
+        const text = (raw || '').trim();
+        if (!text) {
+            this._postPersistent('pipeline-error', 'error', 'The backend reported an error with no detail.');
+            return;
+        }
+        const cause = this._errorCause(text);
+        const summary = cause
+            ? `${this._errorHeadline(text)}\n\n${cause}`
+            : this._errorHeadline(text);
+        this._postPersistent('pipeline-error', 'error', summary, this._clamp(text));
+    }
+    /** Bound the raw log, keeping both ends: the exception is at the top and
+     *  the resolved error summary is at the bottom, so only the middle is safe
+     *  to drop. */
+    _clamp(text) {
+        if (text.length <= MAX_ERROR_DETAIL) {
+            return text;
+        }
+        const head = Math.floor(MAX_ERROR_DETAIL * 0.25);
+        const tail = MAX_ERROR_DETAIL - head;
+        const dropped = text.length - MAX_ERROR_DETAIL;
+        return text.slice(0, head)
+            + `\n\n\u2026 ${dropped} characters omitted \u2026\n\n`
+            + text.slice(-tail);
+    }
+    /** One line naming what failed. */
+    _errorHeadline(text) {
+        const cmd = text.match(/process "\/bin\/sh -c (.+?)" did not complete successfully: exit code: (\d+)/i);
+        if (cmd) {
+            return `Build failed on \`${this._truncate(cmd[1], 48)}\` (exit ${cmd[2]})`;
+        }
+        const timedOut = text.match(/timed out after (\d+) (seconds|minutes)/i);
+        if (timedOut) {
+            const mins = timedOut[2].toLowerCase().startsWith('second')
+                ? Math.round(Number(timedOut[1]) / 60)
+                : Number(timedOut[1]);
+            return `Build timed out after ${mins} minute${mins === 1 ? '' : 's'}`;
+        }
+        // Not every exception name ends in "Error" — TimeoutExpired is the one
+        // that matters here, so match that suffix too.
+        const exc = text.match(/^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Expired|Timeout)):\s*(.+)$/m);
+        if (exc) {
+            return `${exc[1]} \u2014 ${this._truncate(exc[2], 60)}`;
+        }
+        const first = text.split('\n').map(l => l.trim()).find(Boolean);
+        return this._truncate(first ?? 'Something went wrong', 72);
+    }
+    /**
+     * Plain-language cause, when the log carries a recognisable one.
+     *
+     * These mirror the fault categories the flakiness corpus is labelled with,
+     * which is where build failures in this project actually cluster.
+     */
+    _errorCause(text) {
+        if (/timed out after/i.test(text)) {
+            return 'The build was still running when the time limit was reached. '
+                + 'Large downloads or packages compiled from source can take longer '
+                + 'than the limit allows.';
+        }
+        if (/pull access denied|manifest unknown|repository does not exist/i.test(text)) {
+            return 'The base image could not be pulled — it may have been renamed or removed.';
+        }
+        if (/(Failed to fetch|does not have a Release file)/i.test(text)
+            && /404|Release file/i.test(text)) {
+            return 'The base image\u2019s package repositories are no longer served (404). '
+                + 'That distribution has most likely reached end of life.';
+        }
+        const apt = text.match(/Unable to locate package (\S+)/i);
+        if (apt) {
+            return `apt cannot find the package \`${apt[1]}\`.`;
+        }
+        const pip = text.match(/No matching distribution found for (\S+)/i);
+        if (pip) {
+            return `pip cannot find a release of \`${pip[1]}\` for this Python version.`;
+        }
+        if (/externally-managed-environment/i.test(text)) {
+            return 'The image blocks system-wide pip installs (PEP 668). '
+                + 'Install into a virtualenv instead.';
+        }
+        const missing = text.match(/([\w.\-/]+): not found/i);
+        if (missing) {
+            return `\`${missing[1]}\` is not present in the image.`;
+        }
+        return undefined;
+    }
     _summarizeError(raw) {
         const text = raw.trim();
         const failedCmd = text.match(/process "\/bin\/sh -c (.+?)" did not complete/i);
