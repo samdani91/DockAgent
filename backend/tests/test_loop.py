@@ -74,6 +74,26 @@ def test_loop_fail_once_then_succeed():
     assert result.last_error is None
 
 
+def test_loop_reuses_initial_s0_failure_without_rebuilding():
+    builder = FakeDockerBuilder([
+        BuildResult(success=True, exit_code=0, log="Built repaired image"),
+    ])
+    result = run_loop(
+        initial_dockerfile=_BROKEN_DOCKERFILE,
+        context=ProjectContext(text="FastAPI app"),
+        context_dir="/tmp/fake_repo",
+        builder=builder,
+        llm=_FakeLLM(),
+        initial_result=BuildResult(success=False, exit_code=1,
+                                   log=_MISSING_REQ_ERROR),
+    )
+
+    assert result.success
+    assert result.attempts == 2
+    assert builder.call_count == 1
+    assert "COPY requirements.txt" in builder.calls[0][0]
+
+
 def test_loop_succeeds_on_first_attempt():
     """If the initial Dockerfile builds cleanly the loop exits after 1 attempt."""
     builder = FakeDockerBuilder([

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Callable
 log = logging.getLogger("dockagent.generate")
 
 if TYPE_CHECKING:
-    from .build import DockerBuilder
+    from .build import BuildResult, DockerBuilder
     from .context import ProjectContext
     from .llm import LLMClient
 
@@ -35,6 +35,7 @@ def run_loop(
     llm: "LLMClient",
     max_attempts: int = MAX_ATTEMPTS,
     on_attempt: Callable[[int, str], None] | None = None,
+    initial_result: "BuildResult | None" = None,
 ) -> LoopResult:
     """Run the build-repair loop.
 
@@ -55,6 +56,9 @@ def run_loop(
         A LLMClient implementation.
     max_attempts:
         Hard cap on build attempts.
+    initial_result:
+        Optional result of the initial Dockerfile build, already performed by a
+        caller such as Module 2. Counts as the first attempt without rebuilding.
     """
     from .localize import localize_error
     from .patch import context_driven_patches, error_driven_patches
@@ -73,7 +77,10 @@ def run_loop(
         if on_attempt:
             on_attempt(attempt, f"Build attempt {attempt}/{max_attempts}…")
 
-        result = builder.build(current, context_dir)
+        result = (
+            initial_result if attempt == 1 and initial_result is not None
+            else builder.build(current, context_dir)
+        )
         last_log = result.log
 
         if result.success:
