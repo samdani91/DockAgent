@@ -48,6 +48,16 @@ class TestOutcome:
     spec_path: str | None = None
     message: str = ""
     warning: str | None = None
+    #: What the suite covers. Without this the agent could only repeat the
+    #: pass count — asked "explain the test result" on a 1/1 run it had
+    #: nothing to describe and fell back to guessing what the test might be.
+    image_name: str = ""
+    command_tests: int = 0
+    file_tests: int = 0
+    metadata_tests: int = 0
+    #: A sample of what passed, so the agent can name tests rather than
+    #: describe them in the abstract. Capped to keep the prompt small.
+    passing: list[str] = field(default_factory=list)
 
     @property
     def all_passed(self) -> bool:
@@ -76,6 +86,27 @@ class FlakinessOutcome:
     attempts: int = 0
     failing_instruction: str = ""
     message: str = ""
+    #: The evidence behind the verdict, rather than the verdict alone.
+    iterations: int = 0
+    successes: int = 0
+    failures: int = 0
+    #: Fault types retrieved from the knowledge base for the repair prompt.
+    retrieved: list[str] = field(default_factory=list)
+
+
+#: Longest failure text carried into the recap. The recap is a prompt, not UI,
+#: so a whole build log is bounded here rather than spent on tokens.
+_MAX_REASON_CHARS = 600
+
+
+def _condense(text: str, limit: int = _MAX_REASON_CHARS) -> str:
+    """One line, bounded, keeping the tail where build errors actually are."""
+    clean = " ".join(text.split())
+    if len(clean) <= limit:
+        return clean
+    head = limit // 4
+    tail = limit - head
+    return f"{clean[:head]} […] {clean[-tail:]}"
 
 
 @dataclass
@@ -105,32 +136,101 @@ class PipelineState:
     def summary_lines(self) -> list[str]:
         """Compact human-readable recap, used for prompts and the UI."""
         lines: list[str] = []
+        if self.dockerfile_path:
+            lines.append(f"Dockerfile: {self.dockerfile_path}")
+
         if self.generation:
+            g = self.generation
             lines.append(
                 f"Dockerfile generation: "
-                f"{'succeeded' if self.generation.success else 'failed'}"
-                f" after {self.generation.attempts} attempt(s)."
+                f"{'succeeded' if g.success else 'failed'}"
+                f" after {g.attempts} attempt(s)."
             )
-        if self.test:
-            if self.test.executed:
-                lines.append(
-                    f"Container tests: {self.test.passed}/{self.test.total} passed."
+            # Without the message a failed run said only "failed after 6
+            # attempt(s)", which is too thin to answer "why?" — and thin
+            # context is what the model fills in with guesses.
+            if not g.success and g.message:
+                lines.append(f"  reason: {_condense(g.message)}")
+            if g.optimized:
+                reduction = (
+                    f" ({g.size_reduction_pct:.1f}% smaller)"
+                    if g.size_reduction_pct is not None else ""
                 )
-                for t in self.test.failing[:10]:
+                lines.append(f"  multi-stage optimization applied{reduction}.")
+
+        if self.test:
+            t_out = self.test
+            if t_out.executed:
+                lines.append(
+                    f"Container tests: {t_out.passed}/{t_out.total} passed."
+                )
+                lines.extend(f"  {line}" for line in self._coverage_lines())
+                for t in t_out.failing[:10]:
                     detail = f" — {t.errors[0]}" if t.errors else ""
                     lines.append(f"  failed: {t.name}{detail}")
+                if t_out.passing:
+                    shown = ", ".join(t_out.passing[:12])
+                    more = (
+                        f", and {len(t_out.passing) - 12} more"
+                        if len(t_out.passing) > 12 else ""
+                    )
+                    lines.append(f"  passed: {shown}{more}")
             else:
                 lines.append(
-                    self.test.message
-                    if self.test.message.startswith("Container tests could not run:")
+                    t_out.message
+                    if t_out.message.startswith("Container tests could not run:")
                     else "Container tests: written but not executed."
                 )
+                lines.extend(f"  {line}" for line in self._coverage_lines())
+            if t_out.spec_path:
+                lines.append(f"  specification: {t_out.spec_path}")
+
         if self.flakiness:
-            lines.append(f"Flakiness: {self.flakiness.verdict}.")
-            if self.flakiness.failing_instruction:
-                lines.append(f"  failing instruction: {self.flakiness.failing_instruction}")
-            if self.flakiness.repaired:
-                lines.append(f"  a repair was produced ({self.flakiness.attempts} attempt(s)).")
+            f_out = self.flakiness
+            lines.append(f"Flakiness: {f_out.verdict}.")
+            if f_out.iterations:
+                lines.append(
+                    f"  {f_out.successes} of {f_out.iterations} no-cache builds "
+                    f"succeeded, {f_out.failures} failed."
+                )
+            if f_out.failing_instruction:
+                lines.append(f"  failing instruction: {f_out.failing_instruction}")
+            if f_out.retrieved:
+                lines.append(
+                    f"  similar repairs retrieved: {', '.join(f_out.retrieved)}"
+                )
+            if f_out.repaired:
+                where = (
+                    "applied to the Dockerfile" if f_out.applied
+                    else f"written to {f_out.repaired_path}"
+                )
+                lines.append(
+                    f"  a repair was produced in {f_out.attempts} attempt(s) "
+                    f"and {where}."
+                )
+            elif f_out.needs_repair and f_out.attempts:
+                lines.append(
+                    f"  no repair could be validated after "
+                    f"{f_out.attempts} attempt(s)."
+                )
+
         if self.feedback_rounds:
             lines.append(f"Feedback rounds used: {self.feedback_rounds}.")
+        if self.image_name:
+            lines.append(f"Image under test: {self.image_name}")
         return lines
+
+    def _coverage_lines(self) -> list[str]:
+        """What the generated suite checks, by kind."""
+        t_out = self.test
+        if t_out is None:
+            return []
+        parts = [
+            (t_out.command_tests, "command test"),
+            (t_out.file_tests, "file existence test"),
+            (t_out.metadata_tests, "metadata check"),
+        ]
+        present = [
+            f"{n} {label}{'' if n == 1 else 's'}" for n, label in parts if n
+        ]
+        return [f"covering {', '.join(present)}."] if present else []
