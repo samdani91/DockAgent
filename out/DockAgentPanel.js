@@ -110,12 +110,14 @@ class DockAgentPanel {
                 type: 'run-begin',
                 label: this._runLabel,
                 meta: this._runMeta,
-                startedAt: this._runStartedAt
+                startedAt: this._runStartedAt,
+                stopping: this._activeController?.signal.aborted ?? false
             });
         }
     }
     /** Mark a run as started; `startedAt` is absolute so elapsed time survives a reopen. */
     _beginRun(label) {
+        this._activeController = new AbortController();
         this._runStartedAt = Date.now();
         this._runLabel = label;
         this._runMeta = '';
@@ -126,6 +128,7 @@ class DockAgentPanel {
         });
     }
     _endRun() {
+        this._activeController = undefined;
         this._runStartedAt = 0;
         this._runLabel = 'Working';
         this._runMeta = '';
@@ -149,16 +152,25 @@ class DockAgentPanel {
     async _handleMessage(message) {
         switch (message.type) {
             case 'user-message':
+                if (this._runActive) {
+                    break;
+                }
                 this._addToHistory({ variant: 'user', text: String(message.text ?? '') });
                 this._beginRun('Thinking');
                 try {
                     await this._handleChatMessage(String(message.text ?? ''));
                 }
                 finally {
+                    if (this._activeController?.signal.aborted) {
+                        this._postStep('Run stopped.');
+                    }
                     this._endRun();
                 }
                 break;
             case 'run-module': {
+                if (this._runActive) {
+                    break;
+                }
                 const labels = {
                     generate: 'Generate Dockerfile',
                     test: 'Generate Tests',
@@ -172,6 +184,9 @@ class DockAgentPanel {
                     await this._handlePipelineModule(String(message.module ?? ''), typeof message.threshold === 'number' ? message.threshold : 0.0);
                 }
                 finally {
+                    if (this._activeController?.signal.aborted) {
+                        this._postStep('Run stopped.');
+                    }
                     this._endRun();
                 }
                 break;
@@ -179,6 +194,13 @@ class DockAgentPanel {
             case 'open-file':
                 vscode.workspace.openTextDocument(message.path)
                     .then(doc => vscode.window.showTextDocument(doc));
+                break;
+            case 'stop-run':
+                if (this._runActive && this._activeController &&
+                    !this._activeController.signal.aborted) {
+                    this._activeController.abort();
+                    this._postStatus('Stopping…');
+                }
                 break;
             case 'clear-history':
                 this._chatHistory = [];
@@ -194,6 +216,7 @@ class DockAgentPanel {
         try {
             const response = await fetch(`${this._backendBaseUrl}/chat`, {
                 method: 'POST',
+                signal: this._activeController?.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: text,
@@ -207,7 +230,9 @@ class DockAgentPanel {
             this._postPersistent('assistant-message', 'assistant', data.reply ?? 'No reply from backend.');
         }
         catch (error) {
-            this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Unable to reach the backend chat endpoint.'));
+            if (!this._activeController?.signal.aborted) {
+                this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Unable to reach the backend chat endpoint.'));
+            }
         }
     }
     async _handlePipelineModule(module, threshold) {
@@ -253,6 +278,7 @@ class DockAgentPanel {
         try {
             const response = await fetch(`${this._backendBaseUrl}/pipeline/run`, {
                 method: 'POST',
+                signal: this._activeController?.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     workspace_path: workspaceUri.fsPath,
@@ -309,7 +335,9 @@ class DockAgentPanel {
             }
         }
         catch (error) {
-            this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Full pipeline failed. Is the backend running?'));
+            if (!this._activeController?.signal.aborted) {
+                this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Full pipeline failed. Is the backend running?'));
+            }
         }
     }
     /** Closing summary plus a recap of what each module found. */
@@ -358,6 +386,7 @@ class DockAgentPanel {
         try {
             const response = await fetch(`${this._backendBaseUrl}/pipeline/generate`, {
                 method: 'POST',
+                signal: this._activeController?.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ workspace_path: workspacePath })
             });
@@ -409,7 +438,9 @@ class DockAgentPanel {
             return succeeded;
         }
         catch (error) {
-            this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Dockerfile generation failed. Is the backend running?'));
+            if (!this._activeController?.signal.aborted) {
+                this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Dockerfile generation failed. Is the backend running?'));
+            }
             return false;
         }
     }
@@ -444,6 +475,7 @@ class DockAgentPanel {
         try {
             const response = await fetch(`${this._backendBaseUrl}/pipeline/flakiness`, {
                 method: 'POST',
+                signal: this._activeController?.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     workspace_path: workspaceUri.fsPath,
@@ -500,7 +532,9 @@ class DockAgentPanel {
             }
         }
         catch (error) {
-            this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Flakiness check failed. Is the backend running?'));
+            if (!this._activeController?.signal.aborted) {
+                this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Flakiness check failed. Is the backend running?'));
+            }
         }
     }
     /** Report the detection verdict at the moment detection finishes. */
@@ -573,6 +607,7 @@ class DockAgentPanel {
         try {
             const response = await fetch(`${this._backendBaseUrl}/pipeline/test`, {
                 method: 'POST',
+                signal: this._activeController?.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     dockerfile_path: dockerfilePath,
@@ -644,7 +679,9 @@ class DockAgentPanel {
             }
         }
         catch (error) {
-            this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Test generation failed. Is the backend running?'));
+            if (!this._activeController?.signal.aborted) {
+                this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Test generation failed. Is the backend running?'));
+            }
         }
     }
     _postStatus(label, meta) {
@@ -655,7 +692,8 @@ class DockAgentPanel {
             type: 'status-update',
             label,
             meta,
-            startedAt: this._runStartedAt || Date.now()
+            startedAt: this._runStartedAt || Date.now(),
+            stopping: this._activeController?.signal.aborted ?? false
         });
     }
     /** A pipeline milestone: kept in the transcript, does not end the run. */
@@ -1068,6 +1106,7 @@ class DockAgentPanel {
               <span class="da-status__meta" id="statusMeta"></span>
             </span>
             <span class="da-status__time" id="statusTime">0:00</span>
+            <button class="da-status__stop" id="stopBtn" type="button" title="Stop current run">Stop</button>
           </div>
 
           <!-- ── CHAT INPUT ── -->
