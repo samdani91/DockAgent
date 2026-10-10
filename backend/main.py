@@ -39,6 +39,33 @@ def _remember_run(workspace_path: str, state) -> None:
         _last_state.popitem(last=False)
 
 
+def _remember_module_run(
+    workspace_path: str,
+    dockerfile_path: str,
+    *,
+    generation=None,
+    test=None,
+    flakiness=None,
+) -> None:
+    """Store a single-module run so /chat can answer from it.
+
+    The coordinated endpoint stores a PipelineState with every section filled.
+    A single module fills in only its own, which summary_lines() already skips
+    over when absent — so chat sees a real, if partial, run instead of
+    concluding that nothing has happened.
+    """
+    from coordination.state import PipelineState
+
+    _remember_run(workspace_path, PipelineState(
+        workspace_path=workspace_path,
+        dockerfile_path=dockerfile_path,
+        stage="done",
+        generation=generation,
+        test=test,
+        flakiness=flakiness,
+    ))
+
+
 def _recall_run(workspace_path: str | None):
     """The named workspace's run, else the most recent one."""
     if workspace_path and workspace_path in _last_state:
@@ -210,6 +237,12 @@ async def run_test_generation(request: TestPipelineRequest, http_request: Reques
                         f"Tests were generated but not run: {result.execution_error}"
                     )
             event_queue.put(done)
+
+            from coordination.runners import test_outcome_from
+            _remember_module_run(
+                request.workspace_path, request.dockerfile_path,
+                test=test_outcome_from(result),
+            )
         except RunCancelled:
             log.info("Test generation stopped by the client")
         except Exception as exc:
@@ -358,9 +391,13 @@ async def run_dockerfile_generation(request: GenerateRequest, http_request: Requ
                 on_attempt=lambda attempt, msg: progress("building", msg),
             )
 
+            from coordination.state import GenerationOutcome
+
             if result.success:
                 final_dockerfile = result.dockerfile
                 summary = f"Dockerfile generated successfully in {result.attempts} attempt(s)."
+                optimized = False
+                reduction_pct = None
 
                 # ── Phase B: optimization (optional) ───────────────────────
                 if request.optimize:
@@ -377,6 +414,8 @@ async def run_dockerfile_generation(request: GenerateRequest, http_request: Requ
                     )
                     if opt.success:
                         final_dockerfile = opt.dockerfile
+                        optimized = True
+                        reduction_pct = opt.reduction_pct
                         if opt.reduction_pct is not None:
                             summary += (
                                 f"\n\nOptimized (multi-stage): "
@@ -395,11 +434,30 @@ async def run_dockerfile_generation(request: GenerateRequest, http_request: Requ
                     "message": f"{summary}\nWritten to `{dockerfile_out}`",
                     "output_path": str(dockerfile_out),
                 })
+                _remember_module_run(
+                    request.workspace_path, str(dockerfile_out),
+                    generation=GenerationOutcome(
+                        success=True,
+                        dockerfile_path=str(dockerfile_out),
+                        attempts=result.attempts,
+                        message=summary,
+                        optimized=optimized,
+                        size_reduction_pct=reduction_pct,
+                    ),
+                )
             else:
                 msg = f"Generation failed after {result.attempts} attempt(s)."
                 if result.last_error:
                     msg += f"\n\nLast error:\n```\n{result.last_error}\n```"
                 event_queue.put({"step": "error", "message": msg})
+                _remember_module_run(
+                    request.workspace_path, str(dockerfile_out),
+                    generation=GenerationOutcome(
+                        success=False,
+                        attempts=result.attempts,
+                        message=msg,
+                    ),
+                )
 
         except RunCancelled:
             log.info("Dockerfile generation stopped by the client")
@@ -520,8 +578,22 @@ async def run_flakiness_repair(request: FlakinessRequest, http_request: Request)
                 "repair": None,
             }
 
+            from coordination.state import FlakinessOutcome
+
+            flakiness = FlakinessOutcome(
+                verdict=report.verdict,
+                is_flaky=report.is_flaky,
+                needs_repair=report.needs_repair,
+                failing_instruction=detection["failing_instruction"],
+                message=report.summary(),
+            )
+
             if not report.needs_repair or not request.repair:
                 event_queue.put(done)
+                _remember_module_run(
+                    request.workspace_path, str(dockerfile_path),
+                    flakiness=flakiness,
+                )
                 return
 
             # ── Retrieve ───────────────────────────────────────────────────
@@ -590,10 +662,20 @@ async def run_flakiness_repair(request: FlakinessRequest, http_request: Request)
                 done["repair"]["applied"] = request.apply
                 done["output_path"] = str(dockerfile_path)
                 done["message"] = outcome.message
+                flakiness.repaired = True
+                flakiness.applied = request.apply
+                flakiness.repaired_path = str(repaired_path)
             else:
                 done["message"] = outcome.message
 
+            flakiness.attempts = outcome.attempt_count
+            flakiness.message = outcome.message
+
             event_queue.put(done)
+            _remember_module_run(
+                request.workspace_path, str(dockerfile_path),
+                flakiness=flakiness,
+            )
 
         except RunCancelled:
             log.info("Flakiness check stopped by the client")
