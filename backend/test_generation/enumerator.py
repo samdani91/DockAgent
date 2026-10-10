@@ -11,7 +11,9 @@ import stat
 import subprocess
 import tarfile
 import tempfile
-from typing import Optional
+from typing import Callable, Optional
+
+from cancellation import check_cancelled, run_process
 
 from .data_structures import File, Layer, MetadataElement
 
@@ -253,11 +255,15 @@ class DockerfileInfo:
 # ---------------------------------------------------------------------------
 
 class DockerInspectData:
-    def __init__(self, image_name: str):
-        result = subprocess.run(
+    def __init__(
+        self, image_name: str,
+        cancelled: Callable[[], bool] | None = None,
+    ):
+        result = run_process(
             ["docker", "inspect", image_name],
             capture_output=True,
             timeout=30,
+            cancelled=cancelled,
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -318,7 +324,9 @@ def _normalize_path(name: str) -> str:
     return p
 
 
-def _extract_layers_from_image(image_name: str) -> tuple[list[dict], list[dict]]:
+def _extract_layers_from_image(
+    image_name: str, cancelled: Callable[[], bool] | None = None
+) -> tuple[list[dict], list[dict]]:
     """
     Run docker save and extract layers via tarfile.
     Returns (history_entries, layer_file_lists) where layer_file_lists is a
@@ -326,10 +334,11 @@ def _extract_layers_from_image(image_name: str) -> tuple[list[dict], list[dict]]
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         image_tar = os.path.join(tmpdir, "image.tar")
-        result = subprocess.run(
+        result = run_process(
             ["docker", "save", image_name, "-o", image_tar],
             capture_output=True,
             timeout=300,
+            cancelled=cancelled,
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -349,6 +358,7 @@ def _extract_layers_from_image(image_name: str) -> tuple[list[dict], list[dict]]
 
             per_layer_data: list[tuple[list[File], list[str]]] = []
             for lpath in layer_paths:
+                check_cancelled(cancelled)
                 layer_data = outer.extractfile(lpath)
                 files: list[File] = []
                 removed: list[str] = []
@@ -357,7 +367,9 @@ def _extract_layers_from_image(image_name: str) -> tuple[list[dict], list[dict]]
                 # a multi-GB image used to be held in memory in full, and
                 # getmembers() materialised the whole member list on top of it.
                 with tarfile.open(fileobj=layer_data, mode="r|*") as ltf:
-                    for member in ltf:
+                    for member_index, member in enumerate(ltf):
+                        if member_index % 100 == 0:
+                            check_cancelled(cancelled)
                         basename = posixpath.basename(member.name)
                         norm_path = _normalize_path(member.name)
 
@@ -598,6 +610,7 @@ class Enumerator:
         dockerfile_path: str,
         image_name: str,
         progress=None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> tuple[dict, dict]:
         def _p(msg: str) -> None:
             """Intermediate steps go to the log; the caller reports the totals."""
@@ -609,22 +622,25 @@ class Enumerator:
                 progress("S1", msg)
 
         _p("S1 — Parsing Dockerfile…")
+        check_cancelled(cancelled)
         dfi = DockerfileInfo.from_path(dockerfile_path)
 
         _p("S1 — Running docker inspect…")
-        insp = DockerInspectData(image_name)
+        insp = DockerInspectData(image_name, cancelled)
 
         _p("S1 — Comparing Dockerfile vs image metadata…")
         metadata = self._set_metadata(dfi, insp)
 
         _p_slow("S1 — Saving image tarball (may take a moment for large images)…")
-        layers = self._get_layers(image_name, dfi)
+        layers = self._get_layers(image_name, dfi, cancelled)
 
         _p("S1 — Propagating whiteout deletions across layers…")
-        layers = self._set_removed_path(layers)
+        layers = self._set_removed_path(layers, cancelled)
+
+        check_cancelled(cancelled)
 
         _p("S1 — Analysing Dockerfile instructions per layer…")
-        layers = self._set_inst_info(layers)
+        layers = self._set_inst_info(layers, cancelled)
 
         test_targets = {"metadata": metadata, "layers": layers}
         info = {
@@ -677,8 +693,14 @@ class Enumerator:
 
         return ins_elems + dfile_elems
 
-    def _get_layers(self, image_name: str, dfi: DockerfileInfo) -> list[Layer]:
-        history, per_layer_data = _extract_layers_from_image(image_name)
+    def _get_layers(
+        self, image_name: str, dfi: DockerfileInfo,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[Layer]:
+        if cancelled is None:
+            history, per_layer_data = _extract_layers_from_image(image_name)
+        else:
+            history, per_layer_data = _extract_layers_from_image(image_name, cancelled)
 
         layers: list[Layer] = []
         layer_data_idx = 0
@@ -725,7 +747,10 @@ class Enumerator:
 
         return layers
 
-    def _set_removed_path(self, layers: list[Layer]) -> list[Layer]:
+    def _set_removed_path(
+        self, layers: list[Layer],
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[Layer]:
         """Mark files deleted by a later layer as whiteouts.
 
         Walks the layers once, keeping the files seen so far, instead of
@@ -734,18 +759,26 @@ class Enumerator:
         """
         seen: list[File] = []          # every file from the layers before this one
         for layer in layers:
+            check_cancelled(cancelled)
             extra: list[File] = []
             for removed_path in layer.removed_paths:
+                check_cancelled(cancelled)
                 prefix = removed_path + "/"
-                for f in seen:
+                for index, f in enumerate(seen):
+                    if index % 256 == 0:
+                        check_cancelled(cancelled)
                     if f.path == removed_path or f.path.startswith(prefix):
                         extra.append(File(f.path, f.is_file, f.is_dir, "c---------"))
             seen.extend(layer.files)
             layer.files += extra
         return layers
 
-    def _set_inst_info(self, layers: list[Layer]) -> list[Layer]:
+    def _set_inst_info(
+        self, layers: list[Layer],
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[Layer]:
         for layer in layers:
+            check_cancelled(cancelled)
             inst_info = _analyze_instruction(layer.created_by, layer.workdir)
             layer.set_inst_info(inst_info)
         return layers

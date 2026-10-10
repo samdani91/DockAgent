@@ -6,6 +6,7 @@ import logging
 import subprocess
 from typing import Callable, Optional
 
+from cancellation import check_cancelled, run_process
 import docker
 import docker.errors
 
@@ -35,6 +36,7 @@ class ExpectationAcquirer:
         commands: list[str],
         image_name: str,
         progress: Callable[[str, str], None],
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, tuple[str, tuple]]:
         versioned: dict[str, tuple[str, tuple]] = {}
         total = len(commands)
@@ -51,6 +53,7 @@ class ExpectationAcquirer:
             step = total // 10 if total >= 20 else 0
 
             for i, command in enumerate(commands):
+                check_cancelled(cancelled)
                 if step and i and i % step == 0:
                     progress("S4", f"S4 — {i}/{total} commands checked…")
 
@@ -62,7 +65,9 @@ class ExpectationAcquirer:
                 log.debug("checking %s version (%d/%d)", command, i + 1, total)
 
                 for option in _VERSION_OPTIONS:
-                    result = _run_subprocess(container_id, [command, option])
+                    result = _run_subprocess(
+                        container_id, [command, option], cancelled=cancelled
+                    )
                     if result is None:
                         continue   # timed out
                     exit_code, stdout, stderr = result
@@ -76,14 +81,18 @@ class ExpectationAcquirer:
         return versioned
 
 
-def _run_subprocess(container_id: str, cmd: list[str]) -> Optional[tuple]:
+def _run_subprocess(
+    container_id: str, cmd: list[str],
+    cancelled: Callable[[], bool] | None = None,
+) -> Optional[tuple]:
     """Run a command inside a container via subprocess docker exec (hard-kills on timeout)."""
     try:
-        proc = subprocess.run(
+        proc = run_process(
             ["docker", "exec", container_id] + cmd,
             capture_output=True,
             timeout=_COMMAND_TIMEOUT,
             text=True,
+            cancelled=cancelled,
         )
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:

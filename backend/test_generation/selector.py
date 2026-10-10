@@ -3,6 +3,9 @@
 import fnmatch
 import posixpath
 import re
+from typing import Callable
+
+from cancellation import check_cancelled
 
 from .data_structures import File, Layer, MetadataElement
 
@@ -35,7 +38,11 @@ def _is_documentation(path: str) -> bool:
 
 
 class Scorer:
-    def score(self, test_targets: dict, info: dict) -> dict:
+    def score(
+        self, test_targets: dict, info: dict,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> dict:
+        self._cancelled = cancelled
         self._info = info
         path_env = info["envs"].get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
         self._command_search_paths = path_env.split(":")
@@ -60,18 +67,24 @@ class Scorer:
 
     def _score_files(self, layers: list[Layer]) -> list[Layer]:
         for layer in layers:
+            check_cancelled(self._cancelled)
             inst = layer.inst_info or {}
-            for f in layer.files:
+            for index, f in enumerate(layer.files):
+                if index % 256 == 0:
+                    check_cancelled(self._cancelled)
                 self._apply_inst_rules(f, inst)
                 self._apply_path_rules(f)
 
         # De-duplicate: accumulate inst_points for same path seen in multiple layers
         seen: dict[str, File] = {}
         for layer in reversed(layers):
+            check_cancelled(self._cancelled)
             # Identity set, not a list: the old `x not in to_remove` was a
             # linear scan per file, so de-duplication was quadratic.
             to_remove: set[int] = set()
-            for f in layer.files:
+            for index, f in enumerate(layer.files):
+                if index % 256 == 0:
+                    check_cancelled(self._cancelled)
                 if f.path in seen:
                     seen[f.path].inst_points += f.inst_points
                     to_remove.add(id(f))
@@ -197,12 +210,20 @@ class Scorer:
 
 
 class Filter:
-    def filter(self, test_targets: dict, threshold: float) -> dict:
+    def filter(
+        self, test_targets: dict, threshold: float,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> dict:
+        check_cancelled(cancelled)
         metadata = [e for e in test_targets["metadata"] if e.points >= threshold]
-        layers = self._filter_files(test_targets["layers"], threshold)
+        layers = self._filter_files(test_targets["layers"], threshold, cancelled)
         return {"metadata": metadata, "layers": layers}
 
-    def _filter_files(self, layers: list[Layer], threshold: float) -> list[Layer]:
+    def _filter_files(
+        self, layers: list[Layer], threshold: float,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[Layer]:
         for layer in layers:
+            check_cancelled(cancelled)
             layer.files = [f for f in layer.files if f.points >= threshold]
         return layers

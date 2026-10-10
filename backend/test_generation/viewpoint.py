@@ -5,6 +5,7 @@ import posixpath
 import subprocess
 from typing import Callable, Optional
 
+from cancellation import check_cancelled, run_process
 import docker
 import docker.errors
 
@@ -18,10 +19,14 @@ MAX_PROBE_FAILURES = 10
 
 
 class ViewpointDeterminer:
-    def __init__(self, image_name: str, command_search_paths: list[str]):
+    def __init__(
+        self, image_name: str, command_search_paths: list[str],
+        cancelled: Callable[[], bool] | None = None,
+    ):
         self._image_name = image_name
         self._search_paths = command_search_paths
         self._probe_failures = 0
+        self.cancelled = cancelled
 
     def determine(
         self,
@@ -32,10 +37,12 @@ class ViewpointDeterminer:
         exist_test_infos: list[tuple] = []
 
         client = docker.from_env()
+        check_cancelled(self.cancelled)
         container = _create_container(client, self._image_name)
         container_id = container.id
         try:
             for idx, layer in enumerate(layers):
+                check_cancelled(self.cancelled)
                 if layer.files:
                     log.debug("checking layer %d/%d: %d files",
                               idx + 1, len(layers), len(layer.files))
@@ -102,6 +109,7 @@ class ViewpointDeterminer:
         ):
             if not pending:
                 break
+            check_cancelled(self.cancelled)
             names = list(pending)
             # One line of output per name, in order, blank when unresolved.
             script = "; ".join(
@@ -124,9 +132,10 @@ class ViewpointDeterminer:
         # Scales with the number of names resolved, not a flat 5s.
         timeout = min(300, 10 + count // 20)
         try:
-            proc = subprocess.run(
+            proc = run_process(
                 ["docker", "exec", container_id, "sh", "-c", script],
                 capture_output=True, timeout=timeout, text=True,
+                cancelled=self.cancelled,
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
             self._probe_failures += 1

@@ -6,6 +6,7 @@ import os
 import re
 from typing import Callable
 
+from cancellation import check_cancelled
 from .builder import build_image
 from .data_structures import PipelineResult
 from .enumerator import Enumerator
@@ -43,24 +44,30 @@ class TestPipeline:
         progress: Callable[[str, str], None],
         execute: bool = True,
         execute_timeout: int = 300,
+        cancelled: Callable[[], bool] | None = None,
     ) -> PipelineResult:
         import time
 
         image_name = _image_name_for(workspace_path)
         started = time.monotonic()
+        cancel_option = {"cancelled": cancelled} if cancelled is not None else {}
 
         def stage_done(stage: str) -> None:
+            check_cancelled(cancelled)
             log.info("%s complete (%.1fs elapsed)", stage, time.monotonic() - started)
 
         # S0
+        check_cancelled(cancelled)
         progress("S0", f"S0 — Building Docker image '{image_name}'…")
-        build_image(dockerfile_path, workspace_path, image_name)
+        build_image(dockerfile_path, workspace_path, image_name, **cancel_option)
         progress("S0", "S0 — Docker image built successfully.")
         stage_done("S0 build")
 
         # S1
         progress("S1", "S1 — Saving image and extracting layers…")
-        test_targets, info = Enumerator().enumerate(dockerfile_path, image_name, progress)
+        test_targets, info = Enumerator().enumerate(
+            dockerfile_path, image_name, progress, **cancel_option
+        )
 
         file_count = sum(len(l.files) for l in test_targets["layers"])
         meta_count = len(test_targets["metadata"])
@@ -68,9 +75,10 @@ class TestPipeline:
         stage_done("S1 enumerate")
 
         # S2
+        check_cancelled(cancelled)
         progress("S2", f"S2 — Scoring {file_count} files…")
-        scored = Scorer().score(test_targets, info)
-        filtered = Filter().filter(scored, threshold)
+        scored = Scorer().score(test_targets, info, **cancel_option)
+        filtered = Filter().filter(scored, threshold, **cancel_option)
 
         kept_files = sum(len(l.files) for l in filtered["layers"])
         kept_meta = len(filtered["metadata"])
@@ -79,12 +87,14 @@ class TestPipeline:
 
         # S3 + S4 + write (progress forwarded into cst_writer)
         cmd_count, exist_count = write_cst(
-            filtered, info, image_name, output_path, progress
+            filtered, info, image_name, output_path, progress, **cancel_option
         )
         stage_done("S3+S4 write")
 
         if not execute:
             return PipelineResult(output_path=output_path)
+
+        check_cancelled(cancelled)
 
         # S5 — run the spec we just wrote.
         # A runner failure must not discard the YAML, so it is reported rather
@@ -114,7 +124,7 @@ class TestPipeline:
         run_started = time.monotonic()
         try:
             test_run = execute_tests(
-                image_name, output_path, scaled_timeout, progress
+                image_name, output_path, scaled_timeout, progress, **cancel_option
             )
         except RuntimeError as exc:
             progress("S5", f"S5 — Could not run tests: {exc}")

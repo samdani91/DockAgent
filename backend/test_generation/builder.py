@@ -5,6 +5,9 @@ import re
 import shlex
 import subprocess
 import tempfile
+from typing import Callable
+
+from cancellation import run_process
 
 #: How long a single S0 build may take.
 #:
@@ -21,6 +24,7 @@ def build_image(
     workspace_path: str,
     image_name: str,
     timeout: int = BUILD_TIMEOUT_SECONDS,
+    cancelled: Callable[[], bool] | None = None,
 ) -> None:
     with open(dockerfile_path, "r") as f:
         original = f.read()
@@ -39,11 +43,12 @@ def build_image(
 
     try:
         try:
-            result = subprocess.run(
+            result = run_process(
                 ["docker", "build", "-f", tmp_path, "-t", image_name, "."],
                 cwd=workspace_path,
                 capture_output=True,
                 timeout=timeout,
+                cancelled=cancelled,
             )
         except subprocess.TimeoutExpired:
             # Raised as a RuntimeError like every other build failure, so the

@@ -5,6 +5,8 @@ import posixpath
 import re
 from typing import Callable, Optional
 
+from cancellation import check_cancelled
+
 from .data_structures import File, MetadataElement
 from .expectation import ExpectationAcquirer, mask_patch_version
 
@@ -15,7 +17,9 @@ def write(
     image_name: str,
     output_path: str,
     progress: Callable[[str, str], None],
+    cancelled: Callable[[], bool] | None = None,
 ) -> tuple[int, int]:
+    check_cancelled(cancelled)
     metadata: list[MetadataElement] = filtered_test_targets["metadata"]
     layers = filtered_test_targets["layers"]
 
@@ -29,7 +33,9 @@ def write(
     progress("S3", f"S3 — Determining viewpoints for {total_files} files across {len(layers)} layers…")
 
     from .viewpoint import ViewpointDeterminer
-    vd = ViewpointDeterminer(image_name, command_search_paths)
+    vd = ViewpointDeterminer(
+        image_name, command_search_paths, cancelled=cancelled
+    )
     command_test_infos, exist_test_infos = vd.determine(layers, progress)
 
     cmd_count = sum(len(f) for f, _ in command_test_infos)
@@ -46,13 +52,19 @@ def write(
     if all_commands:
         progress("S4", f"S4 — Acquiring version expectations for {len(all_commands)} commands…")
         acquirer = ExpectationAcquirer()
-        versioned = acquirer.get_versions(all_commands, image_name, progress)
+        if cancelled is None:
+            versioned = acquirer.get_versions(all_commands, image_name, progress)
+        else:
+            versioned = acquirer.get_versions(
+                all_commands, image_name, progress, cancelled=cancelled
+            )
         progress("S4", f"S4 — Got version info for {len(versioned)}/{len(all_commands)} commands.")
     else:
         versioned = {}
         progress("S4", "S4 — No binary commands to version-check.")
 
     # Write YAML
+    check_cancelled(cancelled)
     progress("writing", "Writing CST YAML file…")
     metadata_block = _generate_metadata_test(metadata)
     command_block = _generate_command_tests(command_test_infos, versioned)

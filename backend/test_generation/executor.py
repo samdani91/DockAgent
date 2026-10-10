@@ -17,6 +17,7 @@ import shutil
 import subprocess
 from typing import Any, Callable
 
+from cancellation import run_process
 from .data_structures import TestCaseResult, TestRunResult
 
 RUNNER_IMAGE = "gcr.io/gcp-runtimes/container-structure-test:latest"
@@ -38,6 +39,7 @@ def execute_tests(
     spec_path: str,
     timeout: int = 300,
     progress: Callable[[str, str], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> TestRunResult:
     """Execute *spec_path* against *image_name* and return structured results."""
     emit = progress or (lambda _step, _msg: None)
@@ -49,7 +51,9 @@ def execute_tests(
     cmd = _build_command(image_name, spec_path, emit)
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        proc = run_process(
+            cmd, capture_output=True, timeout=timeout, cancelled=cancelled
+        )
     except subprocess.TimeoutExpired:
         raise RuntimeError(
             f"Test execution timed out after {timeout} seconds."
