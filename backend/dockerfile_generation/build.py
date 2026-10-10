@@ -72,6 +72,7 @@ class RealDockerBuilder:
                 cmd,
                 capture_output=True,
                 text=True,
+                errors="replace",   # build logs quote arbitrary tool output
                 timeout=self._timeout,
                 cwd=context_dir,
                 cancelled=self._cancelled,
@@ -139,6 +140,7 @@ def image_size_bytes(image_id: str, timeout: int = 30) -> int | None:
             ["docker", "image", "inspect", "-f", "{{.Size}}", image_id],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
