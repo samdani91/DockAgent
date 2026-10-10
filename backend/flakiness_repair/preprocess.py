@@ -10,6 +10,7 @@ or cosine similarity compares apples to oranges.
 from __future__ import annotations
 
 import re
+from collections import deque
 from dataclasses import dataclass
 
 # `ERROR: failed to solve: process "/bin/sh -c <cmd>" did not complete successfully: exit code: N`
@@ -35,6 +36,9 @@ _IMAGE_REF = re.compile(
 )
 
 _MAX_SEGMENT_CHARS = 4000
+#: Hard bound on lines held while scanning a step, so a step that prints
+#: megabytes (a source compile) cannot be buffered in full.
+_MAX_SEGMENT_LINES = 2000
 
 
 @dataclass
@@ -143,18 +147,39 @@ def _find_failing_step(lines: list[str], failing_cmd: str) -> int | None:
 
 
 def _segment_from(lines: list[str], start: int) -> str:
-    """Collect the failing step's output, stopping at the next step or rule."""
-    collected: list[str] = [lines[start].strip()]
+    """Collect the failing step's output, stopping at the next step or rule.
+
+    Trimmed from the front, not the back. A step's output ends with the reason
+    it failed — `E: Failed to fetch … 404`, a compiler's final error — while it
+    begins with progress chatter: in a plain `apt-get update` failure 73% of
+    the lines are `Ign:`/`Get:` noise. Cutting the head keeps what the retrieval
+    query and the repair prompt are actually looking for.
+    """
+    header = lines[start].strip()
+    body: deque[str] = deque(maxlen=_MAX_SEGMENT_LINES)
+    seen = 0
     for line in lines[start + 1:]:
         if line.strip().startswith("------"):
             break
         if _STEP_HEADER.match(line):     # the next step began
             break
-        collected.append(line.rstrip())
-        if sum(len(c) for c in collected) > _MAX_SEGMENT_CHARS:
-            collected.append("… [truncated]")
-            break
-    return "\n".join(collected).strip()
+        body.append(line.rstrip())
+        seen += 1
+
+    kept = list(body)
+    budget = _MAX_SEGMENT_CHARS - len(header)
+    size = sum(len(line) + 1 for line in kept)
+    dropped = 0
+    while kept and size > budget:
+        size -= len(kept.pop(0)) + 1
+        dropped += 1
+    dropped += seen - len(body)          # whatever the deque itself shed
+
+    parts = [header]
+    if dropped:
+        parts.append(f"… [{dropped} earlier line(s) omitted]")
+    parts.extend(kept)
+    return "\n".join(parts).strip()
 
 
 def _match_instruction(dockerfile: str, failing_cmd: str) -> str:

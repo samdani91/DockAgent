@@ -215,3 +215,34 @@ def test_progress_is_reported_per_build():
 def test_zero_iterations_rejected():
     with pytest.raises(ValueError):
         detect(_DOCKERFILE, "/repo", FakeDockerBuilder([_OK]), iterations=0)
+
+
+def test_the_segment_keeps_its_tail_not_its_head():
+    """A step's output ends with the reason it failed.
+
+    Trimming from the back dropped the `E: Failed to fetch … 404` lines that
+    the retrieval query and the repair prompt are looking for, and kept the
+    `Ign:` progress chatter instead.
+    """
+    from flakiness_repair.preprocess import _MAX_SEGMENT_CHARS, preprocess
+
+    noise = "\n".join(
+        f"#5 0.{i:03d} Ign:{i} http://deb.debian.org/debian stretch InRelease"
+        for i in range(200)
+    )
+    log = (
+        "#5 [2/2] RUN apt-get update\n"
+        + noise
+        + "\n#5 9.999 E: Failed to fetch http://deb.debian.org/x 404 Not Found\n"
+        '#5 ERROR: process "/bin/sh -c apt-get update" did not complete '
+        "successfully: exit code: 100\n"
+    )
+    features = preprocess(log, "FROM debian:stretch\nRUN apt-get update\n")
+
+    assert len(log) > _MAX_SEGMENT_CHARS, "fixture must exceed the cap to be a test"
+    assert "E: Failed to fetch" in features.error_segment
+    assert "404 Not Found" in features.error_segment
+    # The header stays for context, and the dropped head is accounted for.
+    assert features.error_segment.splitlines()[0].startswith("#5 [2/2] RUN apt-get")
+    assert "earlier line(s) omitted" in features.error_segment
+    assert "Ign:0 " not in features.error_segment
