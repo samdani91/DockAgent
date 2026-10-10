@@ -74,7 +74,31 @@ def _result(output_path, passed, total):
         output_path=output_path,
         test_run=TestRunResult(total=total, passed=passed, failed=total - passed,
                                results=cases, raw_output="{}"),
+        image_name="img-under-test",
+        command_tests=2, file_tests=7, metadata_tests=1,
     )
+
+
+def test_the_endpoint_remembers_what_the_suite_covered(tmp_path, monkeypatch):
+    """Asked to explain a run, the agent needs more than the pass count."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM alpine\n")
+
+    class FakePipeline:
+        def run(self, **kwargs):
+            return _result(str(tmp_path / "spec.yaml"), passed=10, total=10)
+
+    monkeypatch.setattr("test_generation.pipeline.TestPipeline", FakePipeline)
+
+    with TestClient(main.app) as client:
+        client.post("/pipeline/test", json={
+            "dockerfile_path": str(dockerfile),
+            "workspace_path": str(tmp_path),
+        })
+
+    recap = "\n".join(main._recall_run(str(tmp_path)).summary_lines())
+    assert "covering 2 command tests, 7 file existence tests, 1 metadata check." in recap
+    assert "passed: t0, t1" in recap
 
 
 def test_generate_tests_button_is_remembered(tmp_path, monkeypatch):
