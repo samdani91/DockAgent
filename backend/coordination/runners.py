@@ -76,7 +76,9 @@ def run_generation(request, state: PipelineState, emit) -> GenerationOutcome:
         emit("generate", step, message)
 
     llm = _require_llm(request)
-    builder = RealDockerBuilder(timeout=request.build_timeout)
+    builder = RealDockerBuilder(
+        timeout=request.build_timeout, cancelled=request.cancelled
+    )
 
     progress("context", "Reading project files…")
     context = build_context(_docs_for(workspace), workspace)
@@ -169,7 +171,9 @@ def apply_test_feedback(
         emit("generate", step, message)
 
     llm = _require_llm(request)
-    builder = RealDockerBuilder(timeout=request.build_timeout)
+    builder = RealDockerBuilder(
+        timeout=request.build_timeout, cancelled=request.cancelled
+    )
 
     context = build_context(_docs_for(workspace), workspace)
     # Prepend the instruction to the project facts so both reach the prompt.
@@ -227,6 +231,7 @@ def run_tests(request, state: PipelineState, emit) -> TestOutcome:
         progress=progress,
         execute=True,
         execute_timeout=request.execute_timeout,
+        cancelled=request.cancelled,
     )
 
     if result.test_run is None:
@@ -271,7 +276,10 @@ def run_flakiness(request, state: PipelineState, emit) -> FlakinessOutcome:
         emit("flakiness", step, message)
 
     # Caching is what hides flakiness.
-    builder = RealDockerBuilder(timeout=request.build_timeout, no_cache=True)
+    builder = RealDockerBuilder(
+        timeout=request.build_timeout, no_cache=True,
+        cancelled=request.cancelled,
+    )
 
     progress("detect", f"Building {request.iterations}× without cache…")
     report = detect(

@@ -6,7 +6,9 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
+
+from cancellation import run_process
 
 log = logging.getLogger("dockagent.build")
 
@@ -34,9 +36,13 @@ class RealDockerBuilder:
     accidentally appear inside the build context.
     """
 
-    def __init__(self, timeout: int = 1800, no_cache: bool = False) -> None:
+    def __init__(
+        self, timeout: int = 1800, no_cache: bool = False,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
         self._timeout = timeout
         self._no_cache = no_cache
+        self._cancelled = cancelled
 
     def build(self, dockerfile_text: str, context_dir: str) -> BuildResult:
         fd, dockerfile_path = tempfile.mkstemp(suffix=".Dockerfile")
@@ -62,12 +68,13 @@ class RealDockerBuilder:
             log.debug("%s", " ".join(cmd))
             started = time.monotonic()
 
-            proc = subprocess.run(
+            proc = run_process(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=self._timeout,
                 cwd=context_dir,
+                cancelled=self._cancelled,
             )
             elapsed = time.monotonic() - started
             # docker build writes everything to stderr with --progress=plain

@@ -67,6 +67,7 @@ class PipelineRequest:
     apply: bool = False                       # apply a flakiness repair in place
     build_timeout: int = 1800
     execute_timeout: int = 300
+    cancelled: Callable[[], bool] | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -99,8 +100,9 @@ def run_pipeline(
 ) -> PipelineState:
     """Drive the full pipeline and return the final state."""
     emit: Progress = progress or (lambda _s, _st, _m: None)
-    mods = modules if modules is not None else Modules.default(request)
     is_cancelled = cancelled or (lambda: False)
+    request.cancelled = is_cancelled
+    mods = modules if modules is not None else Modules.default(request)
 
     workspace = Path(request.workspace_path)
     dockerfile_path = workspace / "Dockerfile"
@@ -141,6 +143,8 @@ def run_pipeline(
         )
         if not state.generation.success:
             agent("Generation failed, so there is nothing to test or check.")
+            if stop_requested():
+                return state
             return _finish(state, mods, agent)
 
     # ── 2/3. Tests, with Feedback A ──────────────────────────────────────
@@ -233,6 +237,8 @@ def run_pipeline(
             f"Re-verification: {state.test.message}",
         )
 
+    if stop_requested():
+        return state
     return _finish(state, mods, agent)
 
 
