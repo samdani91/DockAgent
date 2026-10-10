@@ -145,6 +145,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
   private _runStartedAt = 0;
   private _runLabel = 'Working';
   private _runMeta = '';
+  private _activeController?: AbortController;
 
   private get _runActive(): boolean {
     return this._runStartedAt > 0;
@@ -206,13 +207,15 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
         type: 'run-begin',
         label: this._runLabel,
         meta: this._runMeta,
-        startedAt: this._runStartedAt
+        startedAt: this._runStartedAt,
+        stopping: this._activeController?.signal.aborted ?? false
       });
     }
   }
 
   /** Mark a run as started; `startedAt` is absolute so elapsed time survives a reopen. */
   private _beginRun(label: string) {
+    this._activeController = new AbortController();
     this._runStartedAt = Date.now();
     this._runLabel = label;
     this._runMeta = '';
@@ -224,6 +227,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
   }
 
   private _endRun() {
+    this._activeController = undefined;
     this._runStartedAt = 0;
     this._runLabel = 'Working';
     this._runMeta = '';
@@ -257,16 +261,21 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     switch (message.type) {
 
       case 'user-message':
+        if (this._runActive) { break; }
         this._addToHistory({ variant: 'user', text: String(message.text ?? '') });
         this._beginRun('Thinking');
         try {
           await this._handleChatMessage(String(message.text ?? ''));
         } finally {
+          if (this._activeController?.signal.aborted) {
+            this._postStep('Run stopped.');
+          }
           this._endRun();
         }
         break;
 
       case 'run-module': {
+        if (this._runActive) { break; }
         const labels: Record<string, string> = {
           generate: 'Generate Dockerfile',
           test: 'Generate Tests',
@@ -282,6 +291,9 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
             typeof message.threshold === 'number' ? message.threshold : 0.0
           );
         } finally {
+          if (this._activeController?.signal.aborted) {
+            this._postStep('Run stopped.');
+          }
           this._endRun();
         }
         break;
@@ -290,6 +302,14 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       case 'open-file':
         vscode.workspace.openTextDocument(message.path)
           .then(doc => vscode.window.showTextDocument(doc));
+        break;
+
+      case 'stop-run':
+        if (this._runActive && this._activeController &&
+            !this._activeController.signal.aborted) {
+          this._activeController.abort();
+          this._postStatus('Stopping…');
+        }
         break;
 
       case 'clear-history':
@@ -307,6 +327,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     try {
       const response = await fetch(`${this._backendBaseUrl}/chat`, {
         method: 'POST',
+        signal: this._activeController?.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
@@ -321,7 +342,9 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       const data = (await response.json()) as { reply?: string };
       this._postPersistent('assistant-message', 'assistant', data.reply ?? 'No reply from backend.');
     } catch (error) {
-      this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Unable to reach the backend chat endpoint.'));
+      if (!this._activeController?.signal.aborted) {
+        this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Unable to reach the backend chat endpoint.'));
+      }
     }
   }
 
@@ -379,6 +402,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     try {
       const response = await fetch(`${this._backendBaseUrl}/pipeline/run`, {
         method: 'POST',
+        signal: this._activeController?.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_path: workspaceUri.fsPath,
@@ -426,8 +450,10 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
         }
       }
     } catch (error) {
-      this._postPersistent('pipeline-error', 'error',
-        this._formatError(error, 'Full pipeline failed. Is the backend running?'));
+      if (!this._activeController?.signal.aborted) {
+        this._postPersistent('pipeline-error', 'error',
+          this._formatError(error, 'Full pipeline failed. Is the backend running?'));
+      }
     }
   }
 
@@ -491,6 +517,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     try {
       const response = await fetch(`${this._backendBaseUrl}/pipeline/generate`, {
         method: 'POST',
+        signal: this._activeController?.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_path: workspacePath })
       });
@@ -540,10 +567,12 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
 
       return succeeded;
     } catch (error) {
-      this._postPersistent(
-        'pipeline-error', 'error',
-        this._formatError(error, 'Dockerfile generation failed. Is the backend running?')
-      );
+      if (!this._activeController?.signal.aborted) {
+        this._postPersistent(
+          'pipeline-error', 'error',
+          this._formatError(error, 'Dockerfile generation failed. Is the backend running?')
+        );
+      }
       return false;
     }
   }
@@ -587,6 +616,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     try {
       const response = await fetch(`${this._backendBaseUrl}/pipeline/flakiness`, {
         method: 'POST',
+        signal: this._activeController?.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_path: workspaceUri.fsPath,
@@ -634,8 +664,10 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
         }
       }
     } catch (error) {
-      this._postPersistent('pipeline-error', 'error',
-        this._formatError(error, 'Flakiness check failed. Is the backend running?'));
+      if (!this._activeController?.signal.aborted) {
+        this._postPersistent('pipeline-error', 'error',
+          this._formatError(error, 'Flakiness check failed. Is the backend running?'));
+      }
     }
   }
 
@@ -734,6 +766,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     try {
       const response = await fetch(`${this._backendBaseUrl}/pipeline/test`, {
         method: 'POST',
+        signal: this._activeController?.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dockerfile_path: dockerfilePath,
@@ -812,7 +845,9 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
         }
       }
     } catch (error) {
-      this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Test generation failed. Is the backend running?'));
+      if (!this._activeController?.signal.aborted) {
+        this._postPersistent('pipeline-error', 'error', this._formatError(error, 'Test generation failed. Is the backend running?'));
+      }
     }
   }
 
@@ -824,7 +859,8 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       type: 'status-update',
       label,
       meta,
-      startedAt: this._runStartedAt || Date.now()
+      startedAt: this._runStartedAt || Date.now(),
+      stopping: this._activeController?.signal.aborted ?? false
     });
   }
 
@@ -1275,6 +1311,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
               <span class="da-status__meta" id="statusMeta"></span>
             </span>
             <span class="da-status__time" id="statusTime">0:00</span>
+            <button class="da-status__stop" id="stopBtn" type="button" title="Stop current run">Stop</button>
           </div>
 
           <!-- ── CHAT INPUT ── -->

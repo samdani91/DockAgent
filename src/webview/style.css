@@ -113,6 +113,11 @@ button {
   background: var(--da-hover);
 }
 
+.da-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .da-icon-btn:focus-visible,
 .da-action-btn:focus-visible,
 .da-send-btn:focus-visible,
@@ -578,6 +583,34 @@ button {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.88em;
   font-variant-numeric: tabular-nums;
+}
+
+.da-status__stop {
+  flex: none;
+  min-width: 42px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--da-border);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.da-status__stop:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.da-status__stop:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.da-status__stop:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
 }
 
 @keyframes daSpin {

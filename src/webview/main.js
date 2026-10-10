@@ -4,6 +4,7 @@ const messagesEl    = document.getElementById('messages');
 const chatInput     = document.getElementById('chatInput');
 const sendBtn       = document.getElementById('sendBtn');
 const clearBtn      = document.getElementById('clearBtn');
+const stopBtn       = document.getElementById('stopBtn');
 const actionsHeader = document.getElementById('actionsHeader');
 const actionsBody   = document.getElementById('actionsBody');
 const actionsToggle = document.getElementById('actionsToggle');
@@ -21,6 +22,7 @@ let timerId = null;
 // ── Interactive control state ──
 function updateControls() {
   sendBtn.disabled = isWaiting || chatInput.value.trim().length === 0;
+  clearBtn.disabled = isWaiting;
   document.querySelectorAll('.da-action-btn').forEach(btn => {
     btn.disabled = isWaiting;
     btn.setAttribute('aria-disabled', String(isWaiting));
@@ -55,6 +57,13 @@ clearBtn.addEventListener('click', () => {
   endRun();
   vscode.setState({ history: [], threshold: thresholdInput?.value ?? '0' });
   vscode.postMessage({ type: 'clear-history' });
+});
+
+stopBtn.addEventListener('click', () => {
+  if (!isWaiting || stopBtn.disabled) { return; }
+  stopBtn.disabled = true;
+  setStatus('Stopping');
+  vscode.postMessage({ type: 'stop-run' });
 });
 
 // ── Save and constrain threshold state ──
@@ -152,8 +161,9 @@ function setStatus(label, meta) {
 // `startedAt` is an absolute timestamp from the extension host, so a run that
 // is already in flight resumes with the correct elapsed time after the panel
 // is closed and reopened.
-function startRun(label, startedAt, meta) {
+function startRun(label, startedAt, meta, stopping = false) {
   isWaiting = true;
+  stopBtn.disabled = stopping;
   runStartedAt = startedAt || Date.now();
   setStatus(label, meta || '');
   statusStrip.hidden = false;
@@ -165,6 +175,7 @@ function startRun(label, startedAt, meta) {
 
 function endRun() {
   isWaiting = false;
+  stopBtn.disabled = false;
   runStartedAt = 0;
   if (timerId) { clearInterval(timerId); timerId = null; }
   statusStrip.hidden = true;
@@ -336,9 +347,8 @@ window.addEventListener('message', event => {
 
   switch (msg.type) {
 
-    // A chat reply — the exchange is over.
+    // The host sends run-end after the reply is fully handled.
     case 'assistant-message':
-      endRun();
       appendMessage('assistant', msg.text);
       break;
 
@@ -350,13 +360,16 @@ window.addEventListener('message', event => {
     case 'status-update':
       // A status line implies a run is active — if the webview was rebuilt
       // mid-run, this re-arms the strip rather than being dropped.
-      if (!isWaiting) { startRun(msg.label, msg.startedAt, msg.meta); }
+      if (!isWaiting) {
+        startRun(msg.label, msg.startedAt, msg.meta, msg.stopping);
+      }
+      stopBtn.disabled = Boolean(msg.stopping);
       setStatus(msg.label, msg.meta);
       break;
 
     // Authoritative run lifecycle from the extension host.
     case 'run-begin':
-      startRun(msg.label, msg.startedAt, msg.meta);
+      startRun(msg.label, msg.startedAt, msg.meta, msg.stopping);
       break;
 
     case 'run-end':
@@ -364,12 +377,10 @@ window.addEventListener('message', event => {
       break;
 
     case 'pipeline-error':
-      endRun();
       appendMessage('error', `⚠ ${msg.text}`, msg.detail);
       break;
 
     case 'pipeline-success':
-      endRun();
       appendMessage('success', `✓ ${msg.text}`, msg.detail);
       break;
 
