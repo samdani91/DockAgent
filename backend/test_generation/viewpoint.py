@@ -135,9 +135,10 @@ class ViewpointDeterminer:
             proc = run_process(
                 ["docker", "exec", container_id, "sh", "-c", script],
                 capture_output=True, timeout=timeout, text=True,
+                errors="replace",      # the script echoes arbitrary image output
                 cancelled=self.cancelled,
             )
-        except (subprocess.TimeoutExpired, OSError) as exc:
+        except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
             self._probe_failures += 1
             log.warning("batch probe failed (%s); %d failure(s) so far",
                         type(exc).__name__, self._probe_failures)

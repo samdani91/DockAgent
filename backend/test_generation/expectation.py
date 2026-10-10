@@ -92,14 +92,21 @@ def _run_subprocess(
             capture_output=True,
             timeout=_COMMAND_TIMEOUT,
             text=True,
+            # A probe runs whatever binary the image happens to ship, and not
+            # all of them answer in UTF-8 — one byte of ISO-8859 help text used
+            # to abort the whole pipeline. Only a version number is wanted here,
+            # so an unreadable character is not worth failing over.
+            errors="replace",
             cancelled=cancelled,
         )
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
         log.debug("version probe timed out: %s", " ".join(cmd))
         return None
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         # A failed probe is not a timeout; the caller logged it as one.
+        # ValueError covers UnicodeDecodeError, which is not an OSError and so
+        # escaped to the top of the run instead of skipping this one command.
         log.warning("version probe could not run (%s): %s", type(exc).__name__, exc)
         return None
 
