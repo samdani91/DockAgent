@@ -34,6 +34,14 @@ const STAGE_LABELS = {
     test: 'Module 2',
     flakiness: 'Module 3'
 };
+//: What the status strip shows instead of the full module name. Prefixing the
+//: label with "Module 1 · " cost it a third of a narrow sidebar's width, which
+//: is what pushed both the label and its meta into ellipses.
+const STAGE_BADGES = {
+    generate: 'M1',
+    test: 'M2',
+    flakiness: 'M3'
+};
 /**
  * Serves the pre-repair Dockerfile from memory.
  *
@@ -74,6 +82,7 @@ class DockAgentPanel {
         this._runStartedAt = 0;
         this._runLabel = 'Working';
         this._runMeta = '';
+        this._runBadge = '';
         this._originals = new OriginalDockerfileProvider();
         DockAgentPanel.currentPanel = this;
         // Restore history saved in previous session
@@ -110,6 +119,7 @@ class DockAgentPanel {
                 type: 'run-begin',
                 label: this._runLabel,
                 meta: this._runMeta,
+                badge: this._runBadge,
                 startedAt: this._runStartedAt,
                 stopping: this._activeController?.signal.aborted ?? false
             });
@@ -121,6 +131,7 @@ class DockAgentPanel {
         this._runStartedAt = Date.now();
         this._runLabel = label;
         this._runMeta = '';
+        this._runBadge = '';
         this._view?.webview.postMessage({
             type: 'run-begin',
             label,
@@ -132,6 +143,7 @@ class DockAgentPanel {
         this._runStartedAt = 0;
         this._runLabel = 'Working';
         this._runMeta = '';
+        this._runBadge = '';
         this._view?.webview.postMessage({ type: 'run-end' });
     }
     postMessage(message) {
@@ -684,14 +696,16 @@ class DockAgentPanel {
             }
         }
     }
-    _postStatus(label, meta) {
+    _postStatus(label, meta, badge) {
         this._runLabel = label;
         this._runMeta = meta ?? '';
+        this._runBadge = badge ?? '';
         // startedAt lets a rebuilt webview re-arm the strip with the correct elapsed time.
         this._view?.webview.postMessage({
             type: 'status-update',
             label,
             meta,
+            badge,
             startedAt: this._runStartedAt || Date.now(),
             stopping: this._activeController?.signal.aborted ?? false
         });
@@ -770,7 +784,7 @@ class DockAgentPanel {
             return {
                 label: `Found ${retrieved[1]} similar repairs`,
                 meta: kinds.length === 1
-                    ? this._truncate(kinds[0][0], 46)
+                    ? kinds[0][0]
                     : `${kinds.length} fault types`,
                 detail: kinds.map(([name, n]) => (n > 1 ? `${name} \u00d7${n}` : name)).join('\n'),
                 milestone: true
@@ -807,7 +821,7 @@ class DockAgentPanel {
                 .replace(/[….]+$/, '')
                 .trim();
             const cased = clean.charAt(0).toUpperCase() + clean.slice(1);
-            return { label: this._truncate(cased, 52) };
+            return { label: cased };
         }
         // ── Fixed steps, keyed off the SSE step name ─────────────────────────
         const byStep = {
@@ -831,11 +845,11 @@ class DockAgentPanel {
             const isStats = /\d/.test(rest) && rest.includes(',');
             return {
                 label: byStep[step],
-                meta: isStats ? this._truncate(rest, 46) : undefined
+                meta: isStats ? rest : undefined
             };
         }
         // Unknown event — show it, but keep it short and out of the transcript.
-        return { label: this._truncate(message, 70), detail: message };
+        return { label: this._firstSentence(message), detail: message };
     }
     /** Compress a raw build error into a few words. */
     /**
@@ -876,7 +890,7 @@ class DockAgentPanel {
     _errorHeadline(text) {
         const cmd = text.match(/process "\/bin\/sh -c (.+?)" did not complete successfully: exit code: (\d+)/i);
         if (cmd) {
-            return `Build failed on \`${this._truncate(cmd[1], 48)}\` (exit ${cmd[2]})`;
+            return `Build failed on \`${cmd[1].trim()}\` (exit ${cmd[2]})`;
         }
         const timedOut = text.match(/timed out after (\d+) (seconds|minutes)/i);
         if (timedOut) {
@@ -889,10 +903,10 @@ class DockAgentPanel {
         // that matters here, so match that suffix too.
         const exc = text.match(/^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Expired|Timeout)):\s*(.+)$/m);
         if (exc) {
-            return `${exc[1]} \u2014 ${this._truncate(exc[2], 60)}`;
+            return `${exc[1]} \u2014 ${this._firstSentence(exc[2])}`;
         }
         const first = text.split('\n').map(l => l.trim()).find(Boolean);
-        return this._truncate(first ?? 'Something went wrong', 72);
+        return this._firstSentence(first ?? 'Something went wrong');
     }
     /**
      * Plain-language cause, when the log carries a recognisable one.
@@ -936,7 +950,7 @@ class DockAgentPanel {
         const text = raw.trim();
         const failedCmd = text.match(/process "\/bin\/sh -c (.+?)" did not complete/i);
         if (failedCmd) {
-            return `\`${this._truncate(failedCmd[1], 42)}\` failed`;
+            return `\`${failedCmd[1].trim()}\` failed`;
         }
         const aptMissing = text.match(/Unable to locate package (\S+)/i);
         if (aptMissing) {
@@ -959,7 +973,7 @@ class DockAgentPanel {
             .replace(/^(ERROR|error|E):\s*/, '')
             .replace(/^failed to solve:\s*/i, '')
             .trim();
-        return this._truncate(firstLine, 60);
+        return firstLine;
     }
     /** Render failing cases for the collapsible detail panel. */
     _failureDetail(cases) {
@@ -974,19 +988,23 @@ class DockAgentPanel {
         })
             .join('\n\n');
     }
-    _truncate(text, max) {
+    /** The opening sentence, for a message whose full text lives in the detail panel. */
+    _firstSentence(text) {
         const clean = text.replace(/\s+/g, ' ').trim();
-        return clean.length > max ? clean.slice(0, max - 1) + '…' : clean;
+        const end = clean.search(/[.!?](\s|$)/);
+        return end > 0 ? clean.slice(0, end + 1) : clean;
     }
     /** Route one pipeline event to the status strip and, if notable, the transcript. */
     _handleProgressEvent(step, message, stage) {
         const view = this._progressView(step, message);
-        if (stage && STAGE_LABELS[stage]) {
-            view.label = `${STAGE_LABELS[stage]} · ${view.label}`;
-        }
-        this._postStatus(view.label, view.meta);
+        const badge = stage ? STAGE_BADGES[stage] : undefined;
+        this._postStatus(view.label, view.meta, view.badge ?? badge);
         if (view.milestone) {
-            const text = view.meta ? `${view.label} — ${view.meta}` : view.label;
+            // The transcript has room for the full module name; the strip does not.
+            const prefix = stage && STAGE_LABELS[stage] ? `${STAGE_LABELS[stage]} · ` : '';
+            const text = view.meta
+                ? `${prefix}${view.label} — ${view.meta}`
+                : `${prefix}${view.label}`;
             this._postStep(text, view.detail);
         }
     }
@@ -1023,8 +1041,17 @@ class DockAgentPanel {
               <div class="da-header__title">DockAgent</div>
               <div class="da-header__subtitle">Dockerfile generation and build testing</div>
             </div>
-            <button class="da-icon-btn" id="clearBtn" title="Clear conversation" aria-label="Clear conversation">
-              <span aria-hidden="true">×</span>
+            <button class="da-icon-btn da-icon-btn--danger" id="clearBtn"
+                    title="Clear conversation" aria-label="Clear conversation">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                   stroke="currentColor" stroke-width="1.2" stroke-linecap="round"
+                   stroke-linejoin="round">
+                <path d="M3 4.5 H13"/>
+                <path d="M6.25 4.5 V2.75 H9.75 V4.5"/>
+                <path d="M4.25 4.5 L5 13.25 H11 L11.75 4.5"/>
+                <path d="M6.75 7.25 V11"/>
+                <path d="M9.25 7.25 V11"/>
+              </svg>
             </button>
           </div>
 
@@ -1102,8 +1129,11 @@ class DockAgentPanel {
           <div class="da-status" id="statusStrip" hidden aria-live="polite">
             <span class="da-status__spinner" aria-hidden="true"></span>
             <span class="da-status__body">
-              <span class="da-status__label" id="statusLabel">Working</span>
-              <span class="da-status__meta" id="statusMeta"></span>
+              <span class="da-status__line">
+                <span class="da-status__badge" id="statusBadge" hidden></span>
+                <span class="da-status__label" id="statusLabel">Working</span>
+              </span>
+              <span class="da-status__meta" id="statusMeta" hidden></span>
             </span>
             <span class="da-status__time" id="statusTime">0:00</span>
             <button class="da-status__stop" id="stopBtn" type="button" title="Stop current run">Stop</button>
