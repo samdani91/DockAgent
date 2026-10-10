@@ -89,3 +89,9 @@ class PipelineResult:
     execution_error: str | None = None
     #: Where the JSON record of this run was written, when S5 ran at all.
     results_path: str | None = None
+    #: What the spec actually covers, so the agent can say what was tested
+    #: rather than only how many tests passed.
+    image_name: str = ""
+    command_tests: int = 0
+    file_tests: int = 0
+    metadata_tests: int = 0

@@ -91,8 +91,15 @@ class TestPipeline:
         )
         stage_done("S3+S4 write")
 
+        coverage = {
+            "image_name": image_name,
+            "command_tests": cmd_count,
+            "file_tests": exist_count,
+            "metadata_tests": kept_meta,
+        }
+
         if not execute:
-            return PipelineResult(output_path=output_path)
+            return PipelineResult(output_path=output_path, **coverage)
 
         check_cancelled(cancelled)
 
@@ -141,6 +148,7 @@ class TestPipeline:
                 output_path=output_path,
                 execution_error=str(exc),
                 results_path=results_path,
+                **coverage,
             )
 
         progress("S5", f"S5 — {test_run.passed}/{test_run.total} tests passed.")
@@ -157,4 +165,5 @@ class TestPipeline:
             output_path=output_path,
             test_run=test_run,
             results_path=results_path,
+            **coverage,
         )
