@@ -160,6 +160,47 @@ def test_a_failed_repair_is_distinguished_from_no_repair_attempt():
     assert "no repair could be validated after 3 attempt(s)." in recap
 
 
+def test_the_reported_error_reaches_the_recap():
+    """The agent used to say "the log does not include the terminal output"."""
+    recap = _recap(flakiness=FlakinessOutcome(
+        verdict="deterministic-failure", needs_repair=True,
+        iterations=2, successes=0, failures=2,
+        failing_instruction="RUN apt-get update",
+        stderr='process "/bin/sh -c apt-get update" did not complete '
+               'successfully: exit code: 100',
+        error_segment="#5 [2/2] RUN apt-get update\n"
+                      "#5 Ign:1 http://deb.debian.org/debian stretch InRelease\n"
+                      "#5 E: Failed to fetch http://deb.debian.org/... 404 Not Found"))
+
+    assert "exit code: 100" in recap
+    assert "E: Failed to fetch" in recap
+    assert "404 Not Found" in recap
+
+
+def test_the_doubled_buildkit_error_is_reported_once():
+    recap = _recap(flakiness=FlakinessOutcome(
+        verdict="deterministic-failure", needs_repair=True,
+        stderr='process "/bin/sh -c apt-get update" did not complete successfully\n'
+               'failed to build: failed to solve: process "/bin/sh -c apt-get '
+               'update" did not complete successfully'))
+
+    assert recap.count("did not complete successfully") == 1
+    assert "failed to solve" in recap
+
+
+def test_only_the_tail_of_the_failing_step_is_carried():
+    """The raw log stays out; a step can print megabytes."""
+    segment = "\n".join(["#5 [2/2] RUN build.sh"]
+                        + [f"#5 progress line {i}" for i in range(400)]
+                        + ["#5 error: the actual cause"])
+    recap = _recap(flakiness=FlakinessOutcome(
+        verdict="deterministic-failure", needs_repair=True, error_segment=segment))
+
+    assert "error: the actual cause" in recap
+    assert "progress line 0" not in recap
+    assert len(recap) < 2500
+
+
 # ---------------------------------------------------------------------------
 # Whole run
 # ---------------------------------------------------------------------------
