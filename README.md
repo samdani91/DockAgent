@@ -160,6 +160,8 @@ In the Extension Development Host window:
 
 The status strip above the chat box shows the live stage and elapsed time; progress survives closing and reopening the panel. The **Test score threshold** control trades suite size for focus — a threshold of `0` keeps thousands of base-image targets, so raise it if the suite is slow.
 
+Use **Stop** in the status strip to cancel the active run. Docker builds, image inspection, probes, and container tests are interrupted; a model request already in flight may finish before its worker stops.
+
 Everything streams over SSE, so the panel updates while a build runs.
 
 ### HTTP API
