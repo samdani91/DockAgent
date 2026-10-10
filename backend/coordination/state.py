@@ -92,11 +92,34 @@ class FlakinessOutcome:
     failures: int = 0
     #: Fault types retrieved from the knowledge base for the repair prompt.
     retrieved: list[str] = field(default_factory=list)
+    #: The error itself, already distilled by the paper's pre-processing step.
+    #: Without it the agent could name the failing instruction but not say why
+    #: it failed, and answered "the log does not include the terminal output"
+    #: before guessing. The raw log stays out: it is unbounded, it echoes build
+    #: args and tokens, and it is mostly progress chatter.
+    stderr: str = ""
+    error_segment: str = ""
 
 
 #: Longest failure text carried into the recap. The recap is a prompt, not UI,
 #: so a whole build log is bounded here rather than spent on tokens.
 _MAX_REASON_CHARS = 600
+
+
+def _dedupe(text: str) -> str:
+    """Drop lines already contained in another, longer line.
+
+    BuildKit reports the same failure twice — once bare and once behind
+    "failed to build: failed to solve:" — which doubled the line for no
+    added meaning.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    kept = [
+        line for i, line in enumerate(lines)
+        if not any(line in other for j, other in enumerate(lines)
+                   if j != i and len(other) > len(line))
+    ]
+    return "\n".join(kept)
 
 
 def _condense(text: str, limit: int = _MAX_REASON_CHARS) -> str:
@@ -195,6 +218,13 @@ class PipelineState:
                 )
             if f_out.failing_instruction:
                 lines.append(f"  failing instruction: {f_out.failing_instruction}")
+            if f_out.stderr:
+                lines.append(f"  reported error: {_condense(_dedupe(f_out.stderr), 400)}")
+            if f_out.error_segment:
+                # The tail: a failing step ends with the reason it failed.
+                tail = f_out.error_segment.strip().splitlines()[-12:]
+                lines.append("  output of the failing step (last lines):")
+                lines.extend(f"    {line}" for line in tail)
             if f_out.retrieved:
                 lines.append(
                     f"  similar repairs retrieved: {', '.join(f_out.retrieved)}"

@@ -380,6 +380,10 @@ def run_flakiness(request, state: PipelineState, emit) -> FlakinessOutcome:
         iterations=report.iterations,
         successes=report.successes,
         failures=report.failures,
+        stderr=report.primary_error.stderr if report.primary_error else "",
+        error_segment=(
+            report.primary_error.error_segment if report.primary_error else ""
+        ),
     )
     if not report.needs_repair:
         return outcome
