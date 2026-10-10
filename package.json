@@ -35,8 +35,7 @@
     "commands": [
       {
         "command": "dockagent.runAll",
-        "title": "DockAgent: Run Full Pipeline",
-        "icon": "$(play)"
+        "title": "DockAgent: Run Full Pipeline"
       },
       {
         "command": "dockagent.generateDockerfile",
@@ -50,16 +49,7 @@
         "command": "dockagent.detectFlakiness",
         "title": "DockAgent: Detect & Repair Flakiness"
       }
-    ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "dockagent.runAll",
-          "when": "view == dockagent.chatView",
-          "group": "navigation"
-        }
-      ]
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
