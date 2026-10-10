@@ -238,10 +238,10 @@ async def run_test_generation(request: TestPipelineRequest, http_request: Reques
                     )
             event_queue.put(done)
 
-            from coordination.runners import test_outcome_from
+            from coordination.runners import to_test_outcome
             _remember_module_run(
                 request.workspace_path, request.dockerfile_path,
-                test=test_outcome_from(result),
+                test=to_test_outcome(result),
             )
         except RunCancelled:
             log.info("Test generation stopped by the client")
@@ -586,6 +586,9 @@ async def run_flakiness_repair(request: FlakinessRequest, http_request: Request)
                 needs_repair=report.needs_repair,
                 failing_instruction=detection["failing_instruction"],
                 message=report.summary(),
+                iterations=report.iterations,
+                successes=report.successes,
+                failures=report.failures,
             )
 
             if not report.needs_repair or not request.repair:
@@ -670,6 +673,8 @@ async def run_flakiness_repair(request: FlakinessRequest, http_request: Request)
 
             flakiness.attempts = outcome.attempt_count
             flakiness.message = outcome.message
+            if outcome.attempts:
+                flakiness.retrieved = list(outcome.attempts[0].demonstration_ids)
 
             event_queue.put(done)
             _remember_module_run(

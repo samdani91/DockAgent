@@ -291,21 +291,29 @@ def run_tests(request, state: PipelineState, emit) -> TestOutcome:
         cancelled=request.cancelled,
     )
 
-    return test_outcome_from(result)
+    return to_test_outcome(result)
 
 
-def test_outcome_from(result) -> TestOutcome:
+def to_test_outcome(result) -> TestOutcome:
     """Map a Module 2 PipelineResult onto the agent's TestOutcome.
 
     Shared with the standalone /pipeline/test endpoint, so a single-module run
     is remembered in exactly the shape the coordinated run produces.
     """
+    coverage = {
+        "image_name": result.image_name,
+        "command_tests": result.command_tests,
+        "file_tests": result.file_tests,
+        "metadata_tests": result.metadata_tests,
+    }
+
     if result.test_run is None:
         return TestOutcome(
             executed=False,
             spec_path=result.output_path,
             message=f"Tests written to {result.output_path} but not executed.",
             warning=result.execution_error,
+            **coverage,
         )
 
     run = result.test_run
@@ -318,8 +326,12 @@ def test_outcome_from(result) -> TestOutcome:
             FailingTest(name=c.name, errors=list(c.errors))
             for c in run.results if not c.passed
         ],
+        # Named rather than counted: "explain the test result" on a suite with
+        # nothing failing has no other detail to work from.
+        passing=[c.name for c in run.results if c.passed],
         spec_path=result.output_path,
         message=f"{run.passed} of {run.total} container tests passed.",
+        **coverage,
     )
 
 
@@ -365,6 +377,9 @@ def run_flakiness(request, state: PipelineState, emit) -> FlakinessOutcome:
             report.primary_error.dockerfile_error_line if report.primary_error else ""
         ),
         message=report.summary(),
+        iterations=report.iterations,
+        successes=report.successes,
+        failures=report.failures,
     )
     if not report.needs_repair:
         return outcome
@@ -394,6 +409,8 @@ def run_flakiness(request, state: PipelineState, emit) -> FlakinessOutcome:
 
     outcome.attempts = repair.attempt_count
     outcome.message = repair.message
+    if repair.attempts:
+        outcome.retrieved = list(repair.attempts[0].demonstration_ids)
     if not (repair.success and repair.dockerfile):
         return outcome
 
