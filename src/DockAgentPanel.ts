@@ -1248,8 +1248,17 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
               <div class="da-header__title">DockAgent</div>
               <div class="da-header__subtitle">Dockerfile generation and build testing</div>
             </div>
-            <button class="da-icon-btn" id="clearBtn" title="Clear conversation" aria-label="Clear conversation">
-              <span aria-hidden="true">×</span>
+            <button class="da-icon-btn da-icon-btn--danger" id="clearBtn"
+                    title="Clear conversation" aria-label="Clear conversation">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                   stroke="currentColor" stroke-width="1.2" stroke-linecap="round"
+                   stroke-linejoin="round">
+                <path d="M3 4.5 H13"/>
+                <path d="M6.25 4.5 V2.75 H9.75 V4.5"/>
+                <path d="M4.25 4.5 L5 13.25 H11 L11.75 4.5"/>
+                <path d="M6.75 7.25 V11"/>
+                <path d="M9.25 7.25 V11"/>
+              </svg>
             </button>
           </div>
 
