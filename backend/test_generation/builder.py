@@ -19,6 +19,15 @@ from cancellation import run_process
 BUILD_TIMEOUT_SECONDS = 1800
 
 
+class ImageBuildError(RuntimeError):
+    """The Dockerfile failed to build before container tests could run."""
+
+    def __init__(self, exit_code: int, log: str) -> None:
+        self.exit_code = exit_code
+        self.log = log
+        super().__init__(f"docker build failed (exit {exit_code}):\n{log}")
+
+
 def build_image(
     dockerfile_path: str,
     workspace_path: str,
@@ -63,9 +72,9 @@ def build_image(
             ) from None
 
         if result.returncode != 0:
-            raise RuntimeError(
-                f"docker build failed (exit {result.returncode}):\n"
-                + result.stderr.decode(errors="replace")
+            raise ImageBuildError(
+                result.returncode,
+                result.stderr.decode(errors="replace"),
             )
     finally:
         os.unlink(tmp_path)
