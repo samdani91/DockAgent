@@ -29,6 +29,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
+from test_generation.builder import ImageBuildError
+
 from .explain import explain, summarise
 from .routing import (
     DONE,
@@ -72,12 +74,13 @@ class PipelineRequest:
 
 @dataclass
 class Modules:
-    """The four operations the agent can invoke."""
+    """The operations the agent can invoke."""
     generate: Callable
     test: Callable
     flakiness: Callable
     patch: Callable                           # Feedback A repair
     llm: object | None = None
+    repair_build: Callable | None = None        # S0 build repair
 
     @classmethod
     def default(cls, request: PipelineRequest) -> "Modules":
@@ -89,6 +92,7 @@ class Modules:
             flakiness=runners.run_flakiness,
             patch=runners.apply_test_feedback,
             llm=runners.make_llm(request),
+            repair_build=runners.repair_test_build,
         )
 
 
@@ -128,6 +132,81 @@ def run_pipeline(
             return True
         return False
 
+    build_errors: list[str] = []
+
+    def run_tests_with_build_repair() -> bool:
+        """Run Module 2, routing only Dockerfile build failures to Module 1."""
+        while True:
+            if stop_requested():
+                return False
+            state.stage = "test"
+            try:
+                state.test = mods.test(request, state, emit)
+                return True
+            except ImageBuildError as failure:
+                lines = [line.strip() for line in failure.log.splitlines() if line.strip()]
+                # Substring, not prefix: buildx words this as
+                # "ERROR: failed to build: failed to solve: …", and it is not
+                # always the last line — Docker Desktop appends a build-details
+                # URL after it, whose per-build id would defeat the repeat check
+                # below.
+                error_line = next(
+                    (line for line in reversed(lines)
+                     if "failed to solve:" in line),
+                    lines[-1] if lines else "Docker image build failed.",
+                )
+                state.test = TestOutcome(
+                    executed=False,
+                    message=f"Container tests could not run: {error_line}",
+                    warning=str(failure),
+                )
+                state.record("test", "failure", state.test.message)
+                agent(
+                    "The test image build failed before container tests ran; "
+                    "routing to Dockerfile repair."
+                )
+                if stop_requested():
+                    return False
+                if error_line in build_errors:
+                    agent(
+                        "The same image build error occurred after repair. "
+                        "Stopping without another attempt."
+                    )
+                    return False
+                build_errors.append(error_line)
+                if state.feedback_rounds >= request.max_feedback_rounds:
+                    agent(
+                        f"Reached the feedback limit of {request.max_feedback_rounds} "
+                        "round(s). Container tests and flakiness detection were skipped."
+                    )
+                    return False
+                if mods.repair_build is None:
+                    agent(
+                        "Dockerfile build repair is unavailable. Container tests and "
+                        "flakiness detection were skipped."
+                    )
+                    return False
+
+                state.feedback_rounds += 1
+                agent(
+                    f"Build repair feedback round {state.feedback_rounds} "
+                    f"of {request.max_feedback_rounds}."
+                )
+                state.stage = "generate"
+                state.generation = mods.repair_build(request, state, failure, emit)
+                state.record(
+                    "generate",
+                    "success" if state.generation.success else "failure",
+                    state.generation.message,
+                )
+                if not state.generation.success:
+                    agent(
+                        "Dockerfile build repair failed. Container tests and "
+                        "flakiness detection were skipped."
+                    )
+                    return False
+                agent("The repaired Dockerfile builds; retrying container tests.")
+
     # ── 1. Dockerfile ────────────────────────────────────────────────────
     if dockerfile_path.is_file():
         agent("Found an existing Dockerfile — skipping generation.", step="plan")
@@ -149,10 +228,10 @@ def run_pipeline(
 
     # ── 2/3. Tests, with Feedback A ──────────────────────────────────────
     while True:
-        if stop_requested():
-            return state
-        state.stage = "test"
-        state.test = mods.test(request, state, emit)
+        if not run_tests_with_build_repair():
+            if state.stage == "done":
+                return state
+            return _finish(state, mods, agent)
         state.record(
             "test",
             "success" if state.test.all_passed else "failure",
@@ -229,8 +308,10 @@ def run_pipeline(
     if decision.target == MODULE_2 and not state.reverified:
         state.record("agent", "routed", decision.reason)
         state.reverified = True
-        state.stage = "test"
-        state.test = mods.test(request, state, emit)
+        if not run_tests_with_build_repair():
+            if state.stage == "done":
+                return state
+            return _finish(state, mods, agent)
         state.record(
             "test",
             "success" if state.test.all_passed else "failure",

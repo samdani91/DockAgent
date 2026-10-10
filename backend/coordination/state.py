@@ -120,7 +120,11 @@ class PipelineState:
                     detail = f" — {t.errors[0]}" if t.errors else ""
                     lines.append(f"  failed: {t.name}{detail}")
             else:
-                lines.append("Container tests: written but not executed.")
+                lines.append(
+                    self.test.message
+                    if self.test.message.startswith("Container tests could not run:")
+                    else "Container tests: written but not executed."
+                )
         if self.flakiness:
             lines.append(f"Flakiness: {self.flakiness.verdict}.")
             if self.flakiness.failing_instruction:

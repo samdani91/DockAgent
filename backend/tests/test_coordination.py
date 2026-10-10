@@ -25,6 +25,7 @@ from coordination.state import (
     PipelineState,
     TestOutcome,
 )
+from test_generation.builder import ImageBuildError
 
 # ---------------------------------------------------------------------------
 # Builders
@@ -57,13 +58,16 @@ def _repaired(applied=True):
 class _Recorder:
     """Scripted modules that count how often each one ran."""
 
-    def __init__(self, tests, generation=None, flakiness=None, patch_ok=True):
+    def __init__(self, tests, generation=None, flakiness=None, patch_ok=True,
+                 repair_ok=True):
         self._tests = list(tests)
         self._generation = generation or GenerationOutcome(
             success=True, attempts=1, message="generated")
         self._flakiness = flakiness or _stable()
         self._patch_ok = patch_ok
-        self.calls = {"generate": 0, "test": 0, "flakiness": 0, "patch": 0}
+        self._repair_ok = repair_ok
+        self.calls = {"generate": 0, "test": 0, "flakiness": 0, "patch": 0,
+                      "repair_build": 0}
         self.instructions: list[str] = []
 
     def generate(self, request, state, emit):
@@ -72,7 +76,10 @@ class _Recorder:
 
     def test(self, request, state, emit):
         self.calls["test"] += 1
-        return self._tests.pop(0) if self._tests else _passing()
+        result = self._tests.pop(0) if self._tests else _passing()
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     def flakiness(self, request, state, emit):
         self.calls["flakiness"] += 1
@@ -85,9 +92,17 @@ class _Recorder:
             success=self._patch_ok, attempts=1,
             message="patched" if self._patch_ok else "patch broke the build")
 
+    def repair_build(self, request, state, failure, emit):
+        self.calls["repair_build"] += 1
+        self.instructions.append(failure.log)
+        return GenerationOutcome(
+            success=self._repair_ok, attempts=2,
+            message="build repaired" if self._repair_ok else "build repair failed")
+
     def as_modules(self):
         return Modules(generate=self.generate, test=self.test,
-                       flakiness=self.flakiness, patch=self.patch, llm=None)
+                       flakiness=self.flakiness, patch=self.patch, llm=None,
+                       repair_build=self.repair_build)
 
 
 @pytest.fixture
@@ -206,6 +221,105 @@ def test_unexecuted_tests_are_not_routed_back(workspace):
     assert rec.calls["flakiness"] == 1
 
 
+def test_s0_build_failure_repairs_then_retries_tests(workspace):
+    (workspace / "Dockerfile").write_text("FROM node:8.9.4\nRUN apt-get update\n")
+    failure = ImageBuildError(1, "ERROR: failed to solve: apt-get update returned 100")
+    rec = _Recorder([failure, _passing()])
+    state, events = _run(workspace, rec)
+
+    assert rec.calls["repair_build"] == 1
+    assert rec.calls["patch"] == 0
+    assert rec.calls["test"] == 2
+    assert rec.calls["flakiness"] == 1
+    assert rec.instructions == [failure.log]
+    assert state.feedback_rounds == 1
+    assert state.test.all_passed
+    assert any("before container tests ran" in msg for _, _, msg in events)
+
+
+# Real buildx output: the solve error is not the last line, and the trailing
+# line carries a per-build id.
+_BUILDX_LOG = """\
+ => ERROR [3/4] RUN npm ci --omit=dev
+------
+ > [3/4] RUN npm ci --omit=dev:
+0.412 npm error The `npm ci` command can only install with an existing lockfile
+------
+ERROR: failed to build: failed to solve: process "/bin/sh -c npm ci --omit=dev" did not complete successfully: exit code: 1
+View build details: docker-desktop://dashboard/build/default/default/qk9x2h7
+"""
+
+
+def test_s0_error_line_is_the_solve_error_not_the_trailing_line(workspace):
+    """Regression: a prefix match missed buildx's "failed to build: failed to solve:"."""
+    (workspace / "Dockerfile").write_text("FROM node:20-alpine\nRUN npm ci\n")
+    rec = _Recorder([ImageBuildError(1, _BUILDX_LOG)], repair_ok=False)
+    state, _ = _run(workspace, rec)
+
+    assert "npm ci --omit=dev" in state.test.message
+    assert "docker-desktop://" not in state.test.message
+
+
+def test_repeated_s0_build_error_is_recognised_despite_a_unique_trailing_line(workspace):
+    """The repeat guard must key on the error, not on a per-build id."""
+    (workspace / "Dockerfile").write_text("FROM node:20-alpine\nRUN npm ci\n")
+    second = _BUILDX_LOG.replace("qk9x2h7", "zz41p08")
+    rec = _Recorder([ImageBuildError(1, _BUILDX_LOG),
+                     ImageBuildError(1, second), _passing()])
+    state, _ = _run(workspace, rec, max_feedback_rounds=3)
+
+    assert rec.calls["repair_build"] == 1
+    assert rec.calls["test"] == 2
+    assert state.feedback_rounds == 1
+
+
+def test_failed_s0_repair_stops_without_running_flakiness(workspace):
+    (workspace / "Dockerfile").write_text("FROM node:8.9.4\n")
+    rec = _Recorder([ImageBuildError(1, "ERROR: failed to solve: apt failed")],
+                    repair_ok=False)
+    state, _ = _run(workspace, rec)
+
+    assert rec.calls["test"] == 1
+    assert rec.calls["flakiness"] == 0
+    assert not state.generation.success
+    assert not state.test.executed
+    assert "apt failed" in state.test.message
+    assert state.stage == "done"
+
+
+def test_repeated_s0_build_error_stops_early(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    failure = ImageBuildError(1, "ERROR: failed to solve: same error")
+    rec = _Recorder([failure, failure, _passing()])
+    state, _ = _run(workspace, rec, max_feedback_rounds=3)
+
+    assert rec.calls["repair_build"] == 1
+    assert rec.calls["test"] == 2
+    assert rec.calls["flakiness"] == 0
+    assert state.feedback_rounds == 1
+
+
+def test_s0_build_failure_honours_zero_feedback_cap(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    rec = _Recorder([ImageBuildError(1, "ERROR: failed to solve: apt failed")])
+    state, _ = _run(workspace, rec, max_feedback_rounds=0)
+
+    assert rec.calls["repair_build"] == 0
+    assert rec.calls["flakiness"] == 0
+    assert state.stage == "done"
+
+
+def test_s0_build_repair_shares_cap_with_test_feedback(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    rec = _Recorder([_failing(), ImageBuildError(1, "ERROR: failed to solve: build")])
+    state, _ = _run(workspace, rec, max_feedback_rounds=1)
+
+    assert rec.calls["patch"] == 1
+    assert rec.calls["repair_build"] == 0
+    assert rec.calls["flakiness"] == 0
+    assert state.feedback_rounds == 1
+
+
 # ---------------------------------------------------------------------------
 # Feedback B
 # ---------------------------------------------------------------------------
@@ -218,6 +332,19 @@ def test_applied_repair_triggers_one_reverification(workspace):
     assert state.reverified is True
     assert rec.calls["test"] == 2
     assert sum(1 for r in state.history if r.stage == "test") == 2
+
+
+def test_s0_failure_during_reverification_uses_build_repair(workspace):
+    (workspace / "Dockerfile").write_text("FROM alpine\n")
+    rec = _Recorder([_passing(), ImageBuildError(1, "ERROR: failed to solve: build"),
+                     _passing()], flakiness=_repaired(applied=True))
+    state, _ = _run(workspace, rec)
+
+    assert rec.calls["repair_build"] == 1
+    assert rec.calls["test"] == 3
+    assert rec.calls["flakiness"] == 1
+    assert state.reverified
+    assert state.test.all_passed
 
 
 def test_unapplied_repair_does_not_reverify(workspace):

@@ -209,6 +209,63 @@ def apply_test_feedback(
     )
 
 
+def repair_test_build(request, state: PipelineState, failure, emit) -> GenerationOutcome:
+    """Repair an S0 build failure without replacing the existing Dockerfile on failure."""
+    from dockerfile_generation.build import BuildResult, RealDockerBuilder
+    from dockerfile_generation.context import build_context
+    from dockerfile_generation.loop import run_loop
+    from test_generation.builder import split_run_commands
+
+    workspace = Path(request.workspace_path)
+    dockerfile_path = Path(state.dockerfile_path)
+    current = dockerfile_path.read_text(encoding="utf-8")
+    llm = _require_llm(request)
+    context = build_context(_docs_for(workspace), workspace)
+    real_builder = RealDockerBuilder(
+        timeout=request.build_timeout, cancelled=request.cancelled
+    )
+
+    class TestBuildBuilder:
+        def build(self, dockerfile_text, context_dir):
+            return real_builder.build(split_run_commands(dockerfile_text), context_dir)
+
+    emit(
+        "generate", "building",
+        "Repairing the Dockerfile after the test image build failed…",
+    )
+    result = run_loop(
+        initial_dockerfile=current,
+        context=context,
+        context_dir=str(workspace),
+        builder=TestBuildBuilder(),
+        llm=llm,
+        max_attempts=request.max_attempts,
+        on_attempt=lambda _n, msg: emit("generate", "building", msg),
+        initial_result=BuildResult(
+            success=False, exit_code=failure.exit_code, log=failure.log
+        ),
+    )
+    if not result.success:
+        return GenerationOutcome(
+            success=False,
+            dockerfile_path=str(dockerfile_path),
+            attempts=result.attempts,
+            message=(
+                f"Could not repair the test image build after {result.attempts} attempt(s). "
+                "The Dockerfile was left unchanged."
+                + (f" Last error: {result.last_error}" if result.last_error else "")
+            ),
+        )
+
+    dockerfile_path.write_text(result.dockerfile, encoding="utf-8")
+    return GenerationOutcome(
+        success=True,
+        dockerfile_path=str(dockerfile_path),
+        attempts=result.attempts,
+        message=f"Repaired the test image build in {result.attempts} attempt(s).",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Module 2 — container tests
 # ---------------------------------------------------------------------------
