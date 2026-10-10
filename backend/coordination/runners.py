@@ -291,6 +291,15 @@ def run_tests(request, state: PipelineState, emit) -> TestOutcome:
         cancelled=request.cancelled,
     )
 
+    return test_outcome_from(result)
+
+
+def test_outcome_from(result) -> TestOutcome:
+    """Map a Module 2 PipelineResult onto the agent's TestOutcome.
+
+    Shared with the standalone /pipeline/test endpoint, so a single-module run
+    is remembered in exactly the shape the coordinated run produces.
+    """
     if result.test_run is None:
         return TestOutcome(
             executed=False,
