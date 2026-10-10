@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from dotenv import load_dotenv
+from cancellation import RunCancelled, check_cancelled
 
 load_dotenv()  # loads backend/.env into os.environ before anything reads env vars
 
@@ -118,24 +119,26 @@ async def _sse_stream(
 
     last_sent = time.monotonic()
 
-    while True:
-        try:
-            event = event_queue.get_nowait()
-        except thread_queue.Empty:
-            if http_request is not None and await http_request.is_disconnected():
-                if cancel is not None:
-                    cancel.set()
-                log.warning("client disconnected; signalling the run to stop")
+    try:
+        while True:
+            try:
+                event = event_queue.get_nowait()
+            except thread_queue.Empty:
+                if http_request is not None and await http_request.is_disconnected():
+                    log.info("client disconnected; signalling the run to stop")
+                    return
+                if time.monotonic() - last_sent >= SSE_HEARTBEAT_SECONDS:
+                    last_sent = time.monotonic()
+                    yield ": keepalive\n\n"
+                await asyncio.sleep(0.1)
+                continue
+            if event is None:
                 return
-            if time.monotonic() - last_sent >= SSE_HEARTBEAT_SECONDS:
-                last_sent = time.monotonic()
-                yield ": keepalive\n\n"
-            await asyncio.sleep(0.1)
-            continue
-        if event is None:
-            return
-        last_sent = time.monotonic()
-        yield f"data: {json.dumps(event)}\n\n"
+            last_sent = time.monotonic()
+            yield f"data: {json.dumps(event)}\n\n"
+    finally:
+        if cancel is not None:
+            cancel.set()
 
 # ---------------------------------------------------------------------------
 # Test-generation pipeline (SSE)
@@ -165,6 +168,7 @@ async def run_test_generation(request: TestPipelineRequest, http_request: Reques
             plog = get_logger("test")
 
             def progress(step: str, message: str) -> None:
+                check_cancelled(cancel.is_set)
                 plog.info("%s", message)
                 event_queue.put({"step": step, "message": message})
 
@@ -176,6 +180,7 @@ async def run_test_generation(request: TestPipelineRequest, http_request: Reques
                 progress=progress,
                 execute=request.execute,
                 execute_timeout=request.execute_timeout,
+                cancelled=cancel.is_set,
             )
 
             done: dict = {
@@ -205,6 +210,8 @@ async def run_test_generation(request: TestPipelineRequest, http_request: Reques
                         f"Tests were generated but not run: {result.execution_error}"
                     )
             event_queue.put(done)
+        except RunCancelled:
+            log.info("Test generation stopped by the client")
         except Exception as exc:
             tb = traceback.format_exc()
             log.error("Pipeline failed:\n%s", tb)
@@ -278,6 +285,7 @@ async def run_dockerfile_generation(request: GenerateRequest, http_request: Requ
             plog = get_logger("generate")
 
             def progress(step: str, message: str) -> None:
+                check_cancelled(cancel.is_set)
                 plog.info("%s", message)
                 event_queue.put({"step": step, "message": message})
 
@@ -329,7 +337,9 @@ async def run_dockerfile_generation(request: GenerateRequest, http_request: Requ
                         "GEMINI_API_KEY is not set. Export it before starting the backend."
                     )
                 llm = GeminiClient(model=request.model)
-            builder = RealDockerBuilder(timeout=request.build_timeout)
+            builder = RealDockerBuilder(
+                timeout=request.build_timeout, cancelled=cancel.is_set
+            )
 
             # ── Initial generation ─────────────────────────────────────────
             progress("generating", "Asking LLM for initial Dockerfile…")
@@ -391,6 +401,8 @@ async def run_dockerfile_generation(request: GenerateRequest, http_request: Requ
                     msg += f"\n\nLast error:\n```\n{result.last_error}\n```"
                 event_queue.put({"step": "error", "message": msg})
 
+        except RunCancelled:
+            log.info("Dockerfile generation stopped by the client")
         except Exception as exc:
             tb = traceback.format_exc()
             log.error("Generate pipeline failed:\n%s", tb)
@@ -439,6 +451,7 @@ async def run_flakiness_repair(request: FlakinessRequest, http_request: Request)
             plog = get_logger("flakiness")
 
             def progress(step: str, message: str) -> None:
+                check_cancelled(cancel.is_set)
                 plog.info("%s", message)
                 event_queue.put({"step": step, "message": message})
 
@@ -461,7 +474,10 @@ async def run_flakiness_repair(request: FlakinessRequest, http_request: Request)
             from flakiness_repair.detector import detect
 
             # Caching is what hides flakiness — it must be off.
-            builder = RealDockerBuilder(timeout=request.build_timeout, no_cache=True)
+            builder = RealDockerBuilder(
+                timeout=request.build_timeout, no_cache=True,
+                cancelled=cancel.is_set,
+            )
 
             # ── Detect ─────────────────────────────────────────────────────
             progress(
@@ -579,6 +595,8 @@ async def run_flakiness_repair(request: FlakinessRequest, http_request: Request)
 
             event_queue.put(done)
 
+        except RunCancelled:
+            log.info("Flakiness check stopped by the client")
         except Exception as exc:
             tb = traceback.format_exc()
             log.error("Flakiness pipeline failed:\n%s", tb)
@@ -641,6 +659,7 @@ async def run_full_pipeline(request: RunRequest, http_request: Request) -> Strea
             }
 
             def progress(stage: str, step: str, message: str) -> None:
+                check_cancelled(cancel.is_set)
                 loggers.get(stage, log).info("%s", message)
                 event_queue.put({"stage": stage, "step": step, "message": message})
 
@@ -661,6 +680,7 @@ async def run_full_pipeline(request: RunRequest, http_request: Request) -> Strea
                 progress,
                 cancelled=cancel.is_set,
             )
+            check_cancelled(cancel.is_set)
 
             # Remembered so /chat can answer questions about this run.
             _remember_run(request.workspace_path, state)
@@ -677,6 +697,8 @@ async def run_full_pipeline(request: RunRequest, http_request: Request) -> Strea
                 "output_path": state.dockerfile_path,
                 "state": state.to_dict(),
             })
+        except RunCancelled:
+            log.info("Full pipeline stopped by the client")
         except Exception as exc:
             tb = traceback.format_exc()
             log.error("Coordinated run failed:\n%s", tb)
