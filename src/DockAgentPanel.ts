@@ -14,6 +14,7 @@ interface ChatEntry {
 interface ProgressView {
   label: string;
   meta?: string;
+  badge?: string;        // module chip, kept out of the label so it cannot truncate it
   detail?: string;
   milestone?: boolean;   // milestones are kept in the chat transcript
 }
@@ -72,6 +73,15 @@ const STAGE_LABELS: Record<string, string> = {
   generate: 'Module 1',
   test: 'Module 2',
   flakiness: 'Module 3'
+};
+
+//: What the status strip shows instead of the full module name. Prefixing the
+//: label with "Module 1 · " cost it a third of a narrow sidebar's width, which
+//: is what pushed both the label and its meta into ellipses.
+const STAGE_BADGES: Record<string, string> = {
+  generate: 'M1',
+  test: 'M2',
+  flakiness: 'M3'
 };
 
 interface RunState {
@@ -145,6 +155,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
   private _runStartedAt = 0;
   private _runLabel = 'Working';
   private _runMeta = '';
+  private _runBadge = '';
   private _activeController?: AbortController;
 
   private get _runActive(): boolean {
@@ -207,6 +218,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
         type: 'run-begin',
         label: this._runLabel,
         meta: this._runMeta,
+        badge: this._runBadge,
         startedAt: this._runStartedAt,
         stopping: this._activeController?.signal.aborted ?? false
       });
@@ -219,6 +231,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     this._runStartedAt = Date.now();
     this._runLabel = label;
     this._runMeta = '';
+    this._runBadge = '';
     this._view?.webview.postMessage({
       type: 'run-begin',
       label,
@@ -231,6 +244,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     this._runStartedAt = 0;
     this._runLabel = 'Working';
     this._runMeta = '';
+    this._runBadge = '';
     this._view?.webview.postMessage({ type: 'run-end' });
   }
 
@@ -851,14 +865,16 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     }
   }
 
-  private _postStatus(label: string, meta?: string) {
+  private _postStatus(label: string, meta?: string, badge?: string) {
     this._runLabel = label;
     this._runMeta = meta ?? '';
+    this._runBadge = badge ?? '';
     // startedAt lets a rebuilt webview re-arm the strip with the correct elapsed time.
     this._view?.webview.postMessage({
       type: 'status-update',
       label,
       meta,
+      badge,
       startedAt: this._runStartedAt || Date.now(),
       stopping: this._activeController?.signal.aborted ?? false
     });
@@ -947,7 +963,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       return {
         label: `Found ${retrieved[1]} similar repairs`,
         meta: kinds.length === 1
-          ? this._truncate(kinds[0][0], 46)
+          ? kinds[0][0]
           : `${kinds.length} fault types`,
         detail: kinds.map(([name, n]) => (n > 1 ? `${name} \u00d7${n}` : name)).join('\n'),
         milestone: true
@@ -990,7 +1006,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
         .replace(/[….]+$/, '')
         .trim();
       const cased = clean.charAt(0).toUpperCase() + clean.slice(1);
-      return { label: this._truncate(cased, 52) };
+      return { label: cased };
     }
 
     // ── Fixed steps, keyed off the SSE step name ─────────────────────────
@@ -1015,12 +1031,12 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       const isStats = /\d/.test(rest) && rest.includes(',');
       return {
         label: byStep[step],
-        meta: isStats ? this._truncate(rest, 46) : undefined
+        meta: isStats ? rest : undefined
       };
     }
 
     // Unknown event — show it, but keep it short and out of the transcript.
-    return { label: this._truncate(message, 70), detail: message };
+    return { label: this._firstSentence(message), detail: message };
   }
 
   /** Compress a raw build error into a few words. */
@@ -1068,7 +1084,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       /process "\/bin\/sh -c (.+?)" did not complete successfully: exit code: (\d+)/i
     );
     if (cmd) {
-      return `Build failed on \`${this._truncate(cmd[1], 48)}\` (exit ${cmd[2]})`;
+      return `Build failed on \`${cmd[1].trim()}\` (exit ${cmd[2]})`;
     }
 
     const timedOut = text.match(/timed out after (\d+) (seconds|minutes)/i);
@@ -1084,10 +1100,10 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     const exc = text.match(
       /^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Expired|Timeout)):\s*(.+)$/m
     );
-    if (exc) { return `${exc[1]} \u2014 ${this._truncate(exc[2], 60)}`; }
+    if (exc) { return `${exc[1]} \u2014 ${this._firstSentence(exc[2])}`; }
 
     const first = text.split('\n').map(l => l.trim()).find(Boolean);
-    return this._truncate(first ?? 'Something went wrong', 72);
+    return this._firstSentence(first ?? 'Something went wrong');
   }
 
   /**
@@ -1136,7 +1152,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
     const text = raw.trim();
 
     const failedCmd = text.match(/process "\/bin\/sh -c (.+?)" did not complete/i);
-    if (failedCmd) { return `\`${this._truncate(failedCmd[1], 42)}\` failed`; }
+    if (failedCmd) { return `\`${failedCmd[1].trim()}\` failed`; }
 
     const aptMissing = text.match(/Unable to locate package (\S+)/i);
     if (aptMissing) { return `package not found: ${aptMissing[1]}`; }
@@ -1155,7 +1171,7 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       .replace(/^(ERROR|error|E):\s*/, '')
       .replace(/^failed to solve:\s*/i, '')
       .trim();
-    return this._truncate(firstLine, 60);
+    return firstLine;
   }
 
   /** Render failing cases for the collapsible detail panel. */
@@ -1170,20 +1186,24 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
       .join('\n\n');
   }
 
-  private _truncate(text: string, max: number): string {
+  /** The opening sentence, for a message whose full text lives in the detail panel. */
+  private _firstSentence(text: string): string {
     const clean = text.replace(/\s+/g, ' ').trim();
-    return clean.length > max ? clean.slice(0, max - 1) + '…' : clean;
+    const end = clean.search(/[.!?](\s|$)/);
+    return end > 0 ? clean.slice(0, end + 1) : clean;
   }
 
   /** Route one pipeline event to the status strip and, if notable, the transcript. */
   private _handleProgressEvent(step: string, message: string, stage?: string) {
     const view = this._progressView(step, message);
-    if (stage && STAGE_LABELS[stage]) {
-      view.label = `${STAGE_LABELS[stage]} · ${view.label}`;
-    }
-    this._postStatus(view.label, view.meta);
+    const badge = stage ? STAGE_BADGES[stage] : undefined;
+    this._postStatus(view.label, view.meta, view.badge ?? badge);
     if (view.milestone) {
-      const text = view.meta ? `${view.label} — ${view.meta}` : view.label;
+      // The transcript has room for the full module name; the strip does not.
+      const prefix = stage && STAGE_LABELS[stage] ? `${STAGE_LABELS[stage]} · ` : '';
+      const text = view.meta
+        ? `${prefix}${view.label} — ${view.meta}`
+        : `${prefix}${view.label}`;
       this._postStep(text, view.detail);
     }
   }
@@ -1307,8 +1327,11 @@ export class DockAgentPanel implements vscode.WebviewViewProvider {
           <div class="da-status" id="statusStrip" hidden aria-live="polite">
             <span class="da-status__spinner" aria-hidden="true"></span>
             <span class="da-status__body">
-              <span class="da-status__label" id="statusLabel">Working</span>
-              <span class="da-status__meta" id="statusMeta"></span>
+              <span class="da-status__line">
+                <span class="da-status__badge" id="statusBadge" hidden></span>
+                <span class="da-status__label" id="statusLabel">Working</span>
+              </span>
+              <span class="da-status__meta" id="statusMeta" hidden></span>
             </span>
             <span class="da-status__time" id="statusTime">0:00</span>
             <button class="da-status__stop" id="stopBtn" type="button" title="Stop current run">Stop</button>

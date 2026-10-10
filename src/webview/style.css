@@ -525,7 +525,7 @@ button {
 
 .da-status {
   display: flex;
-  align-items: center;
+  align-items: flex-start;     /* spinner, timer and Stop sit on the first line */
   gap: 8px;
   flex-shrink: 0;              /* never collapse inside the flex column */
   padding: 7px 12px;
@@ -541,6 +541,7 @@ button {
 
 .da-status__spinner {
   flex: none;
+  margin-top: 4px;             /* centred on the first line, not the whole block */
   width: 11px;
   height: 11px;
   border: 1.5px solid var(--da-muted);
@@ -551,26 +552,52 @@ button {
 
 .da-status__body {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  flex-direction: column;      /* label on one line, meta beneath it */
+  gap: 2px;
   min-width: 0;
   flex: 1;
+  padding-top: 1px;
 }
 
+.da-status__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Module chip. Two characters instead of "Module 1 · " leaves the label the
+   width it needs, and a fixed-size chip can never be clipped. */
+.da-status__badge {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--da-border);
+  color: var(--da-muted);
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.da-status__badge[hidden] {
+  display: none;
+}
+
+/* Both lines wrap rather than ellipsing: a clipped word reads as a bug, and
+   the strip has the room to grow by a line. */
 .da-status__label {
   color: var(--da-fg);
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .da-status__meta {
   color: var(--da-muted);
   font-size: 0.9em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .da-status__meta[hidden] {
@@ -579,6 +606,7 @@ button {
 
 .da-status__time {
   flex: none;
+  margin-top: 1px;
   color: var(--da-muted);
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.88em;

@@ -12,6 +12,7 @@ const thresholdInput = document.getElementById('thresholdInput');
 const statusStrip = document.getElementById('statusStrip');
 const statusLabel = document.getElementById('statusLabel');
 const statusMeta  = document.getElementById('statusMeta');
+const statusBadge = document.getElementById('statusBadge');
 const statusTime  = document.getElementById('statusTime');
 
 let isWaiting  = false;
@@ -152,20 +153,22 @@ function tickTimer() {
   statusTime.textContent = formatElapsed(Date.now() - runStartedAt);
 }
 
-function setStatus(label, meta) {
+function setStatus(label, meta, badge) {
   statusLabel.textContent = label || 'Working';
   statusMeta.textContent = meta || '';
   statusMeta.hidden = !meta;
+  statusBadge.textContent = badge || '';
+  statusBadge.hidden = !badge;
 }
 
 // `startedAt` is an absolute timestamp from the extension host, so a run that
 // is already in flight resumes with the correct elapsed time after the panel
 // is closed and reopened.
-function startRun(label, startedAt, meta, stopping = false) {
+function startRun(label, startedAt, meta, stopping = false, badge = '') {
   isWaiting = true;
   stopBtn.disabled = stopping;
   runStartedAt = startedAt || Date.now();
-  setStatus(label, meta || '');
+  setStatus(label, meta || '', badge);
   statusStrip.hidden = false;
   tickTimer();
   if (timerId) { clearInterval(timerId); }
@@ -361,15 +364,15 @@ window.addEventListener('message', event => {
       // A status line implies a run is active — if the webview was rebuilt
       // mid-run, this re-arms the strip rather than being dropped.
       if (!isWaiting) {
-        startRun(msg.label, msg.startedAt, msg.meta, msg.stopping);
+        startRun(msg.label, msg.startedAt, msg.meta, msg.stopping, msg.badge);
       }
       stopBtn.disabled = Boolean(msg.stopping);
-      setStatus(msg.label, msg.meta);
+      setStatus(msg.label, msg.meta, msg.badge);
       break;
 
     // Authoritative run lifecycle from the extension host.
     case 'run-begin':
-      startRun(msg.label, msg.startedAt, msg.meta, msg.stopping);
+      startRun(msg.label, msg.startedAt, msg.meta, msg.stopping, msg.badge);
       break;
 
     case 'run-end':
